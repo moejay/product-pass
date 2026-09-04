@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Product Pass">
+  <rect width="128" height="128" rx="20" fill="#15171a"/>
+  <path d="M24 24h80v80H24z" fill="#ff633f"/>
+  <path d="M39 43h25c15 0 24 8 24 21 0 14-9 22-25 22h-8v15H39V43zm16 13v17h8c6 0 9-3 9-9 0-5-3-8-9-8h-8z" fill="#fff"/>
+  <path d="M91 84h13v17H91z" fill="#15171a"/>
+</svg>

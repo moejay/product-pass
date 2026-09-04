@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Product Pass",
+  "version": "0.1.0",
+  "description": "Capture visual website feedback, organize it into issue drafts, and publish approved issues to GitHub.",
+  "homepage_url": "https://moejay.github.io/product-pass/",
+  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
+  "permissions": ["storage", "tabs", "scripting", "alarms"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "scripts": ["background.js"] },
+  "action": { "default_title": "Open Product Pass", "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" } },
+  "sidebar_action": { "default_title": "Product Pass", "default_panel": "sidebar/index.html", "open_at_install": false },
+  "browser_specific_settings": { "gecko": { "id": "product-pass@moejay.dev", "strict_min_version": "140.0", "data_collection_permissions": { "required": ["authenticationInfo", "websiteActivity", "websiteContent"] } }, "gecko_android": { "strict_min_version": "142.0" } },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'" }
+}
