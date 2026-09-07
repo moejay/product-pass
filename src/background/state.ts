@@ -6,7 +6,7 @@ import { githubDeviceStatus } from "./github-device";
 const STATE_KEY = "productPassState";
 const CREDENTIALS_KEY = "productPassCredentials";
 const defaultSettings: Settings = {
-  aiProvider: "openai-compatible",
+  aiProvider: "codex-subscription",
   aiEndpoint: "https://api.openai.com/v1/chat/completions",
   aiModel: "gpt-4o-mini",
   codexModel: "gpt-5.4",
@@ -23,7 +23,7 @@ export function normalizeSettings(value: unknown): Settings {
   return {
     ...defaultSettings,
     ...saved,
-    aiProvider: saved.aiProvider === "codex-subscription" ? "codex-subscription" : "openai-compatible",
+    aiProvider: saved.aiProvider === "openai-compatible" ? "openai-compatible" : "codex-subscription",
     githubAuth: saved.githubAuth === "pat" ? "pat" : "github-app",
     aiEndpoint: typeof saved.aiEndpoint === "string" ? saved.aiEndpoint : defaultSettings.aiEndpoint,
     aiModel: typeof saved.aiModel === "string" ? saved.aiModel : defaultSettings.aiModel,

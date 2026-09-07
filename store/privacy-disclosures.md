@@ -15,7 +15,7 @@ Sessions, drafts, settings, credentials, geometry, and cropped screenshots are s
 ## User-directed network transfers
 - Configured AI provider: note text, page title, sanitized URL, annotation type, and element label, only after an organization confirmation.
 - OpenAI authentication/Codex service: authentication data and organization request when that experimental provider is selected.
-- GitHub: authentication data and the edited issue title/body only after explicit publication confirmation.
+- GitHub: authentication data, user-initiated accessible-repository lookup, and the edited issue title/body only after explicit publication confirmation.
 
 ## Practices
 - No sale of data.

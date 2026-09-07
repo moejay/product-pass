@@ -12,6 +12,7 @@ let settingsOpen = false;
 let captureOpen = true;
 let reviewOpen = true;
 let setupOpen: boolean | null = null;
+let repoSearchTimer: number | undefined;
 const screenshotCache = new Map<string, string>();
 const screenshotLoads = new Map<string, Promise<string>>();
 
@@ -108,26 +109,55 @@ async function createSession(): Promise<void> {
   await rpc({ type: "CREATE_SESSION", title: title.slice(0, 120) }); say("Review started.");
 }
 
-function openSettings(): void {
-  settingsOpen = true; render();
-  requestAnimationFrame(() => document.querySelector(".settings-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+async function connectCodex(): Promise<void> {
+  if (!await ext.permissions.request({ origins: ["https://auth.openai.com/*", "https://chatgpt.com/*"] })) throw new Error("OpenAI access permission was not granted.");
+  await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, aiProvider: "codex-subscription" } });
+  await rpc({ type: "START_CODEX_DEVICE_FLOW" }); say("Enter the displayed code on the OpenAI verification page.");
+}
+async function connectGithub(): Promise<void> {
+  if (!await ext.permissions.request({ origins: ["https://github.com/*", "https://api.github.com/*"] })) throw new Error("GitHub access permission was not granted.");
+  await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, githubAuth: "github-app" } });
+  await rpc({ type: "START_GITHUB_DEVICE_FLOW" }); say("Enter the displayed code on GitHub.");
+}
+function deviceFlow(code: string, url: string, label: string): HTMLElement {
+  const panel = element("div", undefined, "connection-flow"); panel.append(element("span", code, "device-code"));
+  const link = element("a", label); link.href = url; link.target = "_blank"; link.rel = "noreferrer"; panel.append(link); return panel;
 }
 function renderConnectionChecklist(state: AppState): void {
   const usingCodex = state.settings.aiProvider === "codex-subscription";
-  const aiReady = usingCodex ? data!.credentials.codexSubscription.connected : data!.credentials.aiKey;
-  const githubReady = Boolean(state.settings.githubRepo) && (state.settings.githubAuth === "github-app" ? data!.credentials.githubApp.connected : data!.credentials.githubToken);
+  const aiStatus = data!.credentials.codexSubscription; const githubStatus = data!.credentials.githubApp;
+  const aiReady = usingCodex ? aiStatus.connected : data!.credentials.aiKey;
+  const githubConnected = state.settings.githubAuth === "github-app" ? githubStatus.connected : data!.credentials.githubToken;
+  const githubReady = Boolean(state.settings.githubRepo) && githubConnected;
   const complete = Number(aiReady) + Number(githubReady);
   const details = element("details", undefined, "setup-checklist"); details.open = setupOpen ?? complete < 2; details.addEventListener("toggle", () => { setupOpen = details.open; });
-  const summary = element("summary"); summary.append(element("span", "Connections", "section-title"), element("span", `${complete}/2 ready`, "count")); details.append(summary);
+  const summary = element("summary"); summary.append(element("span", "Setup", "section-title"), element("span", `${complete}/2 ready`, "count")); details.append(summary);
   const list = element("div", undefined, "checklist");
-  const addItem = (checked: boolean, title: string, description: string) => {
-    const row = element("div", undefined, `checklist-item${checked ? " ready" : ""}`); const mark = element("input"); mark.type = "checkbox"; mark.checked = checked; mark.disabled = true; mark.setAttribute("aria-label", `${title}: ${checked ? "ready" : "not configured"}`);
+  const addItem = (checked: boolean, title: string, description: string, action?: () => Promise<void>) => {
+    const row = element("div", undefined, `checklist-item${checked ? " ready" : ""}`); const mark = element("input"); mark.type = "checkbox"; mark.checked = checked; mark.disabled = true; mark.setAttribute("aria-label", `${title}: ${checked ? "ready" : "not connected"}`);
     const copy = element("div"); copy.append(element("strong", title), element("span", description, "meta")); row.append(mark, copy);
-    if (!checked) row.append(directButton("Configure", openSettings, "secondary compact")); list.append(row);
+    if (!checked && action) row.append(button("Connect", action, "secondary compact")); list.append(row); return row;
   };
-  addItem(aiReady, "AI organization", aiReady ? (usingCodex ? "Codex subscription connected" : "OpenAI-compatible API connected") : "Optional — local grouping remains available");
-  addItem(githubReady, "Issue destination", githubReady ? `GitHub · ${state.settings.githubRepo}` : "Connect GitHub and choose a repository");
-  details.append(list); app.append(details);
+  const aiRow = addItem(aiReady, "AI organization", aiReady ? (usingCodex ? "Codex subscription connected" : "OpenAI-compatible API connected") : "Codex subscription · local fallback remains available", aiStatus.state === "awaiting-user" ? undefined : connectCodex);
+  if (aiStatus.state === "awaiting-user" && aiStatus.userCode && aiStatus.verificationUri) aiRow.append(deviceFlow(aiStatus.userCode, aiStatus.verificationUri, "Open OpenAI verification"));
+  const githubRow = addItem(githubReady, "GitHub issue destination", githubReady ? state.settings.githubRepo : githubConnected ? "Connected · choose a repository below" : "Product Pass By DOTDEV GitHub App", githubConnected || githubStatus.state === "awaiting-user" ? undefined : connectGithub);
+  if (githubStatus.state === "awaiting-user" && githubStatus.userCode && githubStatus.verificationUri) githubRow.append(deviceFlow(githubStatus.userCode, githubStatus.verificationUri, "Open GitHub verification"));
+  const repo = element("div", undefined, "repo-picker"); const label = element("label", "Issue repository"); label.htmlFor = "setup-repo";
+  const input = element("input"); input.id = "setup-repo"; input.value = state.settings.githubRepo; input.placeholder = githubConnected ? "Search owner/repository" : "Connect GitHub to search repositories"; input.setAttribute("list", "github-repositories");
+  const options = element("datalist"); options.id = "github-repositories"; const searchStatus = element("span", githubConnected ? "Type to search repositories available to the connected account." : "Repository search becomes available after GitHub is connected.", "meta");
+  const search = () => {
+    if (!githubConnected) return; window.clearTimeout(repoSearchTimer); const query = input.value;
+    repoSearchTimer = window.setTimeout(async () => {
+      try {
+        searchStatus.textContent = "Searching GitHub…"; const names = await rpc<string[]>({ type: "SEARCH_GITHUB_REPOS", query });
+        if (!input.isConnected || input.value !== query) return; options.replaceChildren(...names.map(name => { const option = element("option"); option.value = name; return option; })); searchStatus.textContent = names.length ? `${names.length} matching repositor${names.length === 1 ? "y" : "ies"}.` : "No accessible repositories matched.";
+      } catch (error) { searchStatus.textContent = error instanceof Error ? error.message : "Repository search failed."; }
+    }, 250);
+  };
+  input.addEventListener("focus", search); input.addEventListener("input", search); input.addEventListener("change", () => void run(async () => { await rpc({ type: "SET_GITHUB_REPO", repo: input.value }); say("Issue repository saved."); }));
+  repo.append(label, input, options, searchStatus);
+  if (state.settings.githubAppInstallUrl) { const install = element("a", "Install or configure the Product Pass GitHub App", "repo-install"); install.href = state.settings.githubAppInstallUrl; install.target = "_blank"; install.rel = "noreferrer"; repo.append(install); }
+  details.append(list, repo); app.append(details);
 }
 async function finishSession(session: ReviewSession): Promise<void> {
   const unpublished = session.drafts.some(draft => draft.publishState !== "published" && draft.decision === "accepted");
@@ -246,7 +276,7 @@ async function publishDraft(draft: IssueDraft): Promise<void> {
 function renderSettings(state: AppState): void {
   const status = data!.credentials.githubApp;
   const codexStatus = data!.credentials.codexSubscription;
-  const forceOpen = status.state === "awaiting-user" || Boolean(status.message) || codexStatus.state === "awaiting-user" || Boolean(codexStatus.message);
+  const forceOpen = Boolean(status.message) || Boolean(codexStatus.message);
   const details = element("details", undefined, "settings-panel"); details.open = settingsOpen || forceOpen;
   details.addEventListener("toggle", () => { settingsOpen = details.open; });
   const summary = element("summary", "Settings"); details.append(summary);
@@ -276,9 +306,9 @@ function renderSettings(state: AppState): void {
   githubAuth.append(patOption, appOption); githubAuth.value = state.settings.githubAuth;
   const tokenLabel = element("label", "GitHub fine-grained token (stored locally)"); tokenLabel.htmlFor = "github-token";
   const token = element("input"); token.id = "github-token"; token.type = "password"; token.autocomplete = "off"; token.placeholder = data!.credentials.githubToken ? "Stored in extension local storage" : "Not configured";
-  const clientLabel = element("label", "GitHub App client ID (public identifier)"); clientLabel.htmlFor = "github-client-id";
+  const clientLabel = element("label", "GitHub App client ID (advanced override)"); clientLabel.htmlFor = "github-client-id";
   const clientId = element("input"); clientId.id = "github-client-id"; clientId.value = state.settings.githubAppClientId; clientId.autocomplete = "off";
-  const installLabel = element("label", "GitHub App installation URL (optional)"); installLabel.htmlFor = "github-install-url";
+  const installLabel = element("label", "GitHub App installation URL (advanced override)"); installLabel.htmlFor = "github-install-url";
   const installUrl = element("input"); installUrl.id = "github-install-url"; installUrl.type = "url"; installUrl.value = state.settings.githubAppInstallUrl; installUrl.placeholder = "https://github.com/apps/your-app/installations/new";
 
   const compatibleFields = element("div", undefined, "settings-group"); compatibleFields.append(endpointLabel, endpoint, modelLabel, model, keyLabel, key);

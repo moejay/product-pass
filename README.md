@@ -9,9 +9,9 @@ A local-first Chrome and Firefox extension for capturing review annotations, org
 - One active review session shared across tabs and page navigation; multiple saved sessions that can be finished, reopened, or permanently deleted.
 - Element-boundary and freehand annotations with optional text and a locally stored cropped screenshot when browser capture is available.
 - Saved overlays re-applied on an exact URL after reload and SPA navigation.
-- OpenAI-compatible organization when configured; deterministic local grouping by hostname otherwise or when the AI response/request fails.
+- Codex subscription organization by default, with OpenAI-compatible API override and deterministic local grouping when AI is unavailable.
 - Collapsible capture and review/publish workflows with editable issue title/body, live plain-text Markdown preview, local source-screenshot gallery, source-note evidence, and accept/skip decisions.
-- Direct GitHub REST issue creation only after accepting a draft and confirming publish, using either a fine-grained PAT or GitHub App Device Flow.
+- Direct GitHub REST issue creation only after accepting a draft and confirming publish, defaulting to the Product Pass GitHub App with repository autocomplete and a fine-grained PAT override.
 - Shared TypeScript source with browser-specific Manifest V3 builds.
 
 Voice annotations, screenshot uploads, a backend, and generic provider frameworks are intentionally excluded. Screenshots stay local to the extension. ChatGPT Plus/Pro Codex subscription support is an **experimental sideload-only compatibility feature**; see the risk and protocol pin below.

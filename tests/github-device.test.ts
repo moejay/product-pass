@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { nextPendingPoll, parseDeviceCodeResponse, parseTokenPollResponse, pollDeviceCode, requestDeviceCode } from "../src/background/github-device";
-import { selectGithubCredential, verifyGithubAppRepoAccess } from "../src/background/github";
+import { listGithubAppRepositories, listPatRepositories, selectGithubCredential, verifyGithubAppRepoAccess } from "../src/background/github";
 import { normalizeSettings } from "../src/background/state";
 
 const deviceResponse = {
@@ -14,7 +14,8 @@ const deviceResponse = {
 
 test("new settings use the public Product Pass GitHub App while explicit PAT settings survive", () => {
   const settings = normalizeSettings({ aiEndpoint: "https://example.test/chat", aiModel: "model", githubRepo: "owner/repo" });
-  assert.equal(settings.aiProvider, "openai-compatible");
+  assert.equal(settings.aiProvider, "codex-subscription");
+  assert.equal(normalizeSettings({ aiProvider: "openai-compatible" }).aiProvider, "openai-compatible");
   assert.equal(settings.githubAuth, "github-app");
   assert.equal(settings.githubAppClientId, "Iv23li0eh1QsLt4ca7LN");
   assert.equal(settings.githubAppInstallUrl, "https://github.com/apps/product-pass-by-dotdev/installations/new");
@@ -58,6 +59,14 @@ test("token polling distinguishes pending, slow_down, terminal errors, and expir
     kind: "success", token: { accessToken: "ghu_token", expiresAt: 62_000 }
   });
   assert.throws(() => parseTokenPollResponse({ access_token: "token", token_type: "mac" }), /unsupported token type/);
+});
+
+test("repository autocomplete lists GitHub App and PAT repositories defensively", async () => {
+  const appResponses = [{ installations: [{ id: 7 }] }, { repositories: [{ full_name: "Owner/Zeta" }, { full_name: "owner/Alpha" }, { full_name: "invalid" }] }];
+  const appFetcher: typeof fetch = async () => new Response(JSON.stringify(appResponses.shift()), { status: 200 });
+  assert.deepEqual(await listGithubAppRepositories("app-token", appFetcher), ["owner/Alpha", "Owner/Zeta"]);
+  const patFetcher: typeof fetch = async () => new Response(JSON.stringify([{ full_name: "owner/repo" }, { full_name: null }]), { status: 200 });
+  assert.deepEqual(await listPatRepositories("pat-token", patFetcher), ["owner/repo"]);
 });
 
 test("GitHub App repository access is checked through installations", async () => {

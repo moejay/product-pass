@@ -32,19 +32,34 @@ export function selectGithubCredential(mode: "pat" | "github-app", pat: string, 
   return appToken;
 }
 
-export async function verifyGithubAppRepoAccess(repo: string, token: string, fetcher: typeof fetch = fetch): Promise<void> {
-  if (!validRepo(repo)) throw new Error("Enter a repository as owner/name.");
+export async function listGithubAppRepositories(token: string, fetcher: typeof fetch = fetch): Promise<string[]> {
   const installationsResponse = await fetcher("https://api.github.com/user/installations?per_page=100", { headers: headers(token) });
   if (!installationsResponse.ok) throw new Error(await safeError(installationsResponse));
   const payload = await installationsResponse.json() as { installations?: Array<{ id?: unknown }> };
   if (!Array.isArray(payload.installations)) throw new Error("GitHub returned an incomplete installation list.");
+  const names = new Set<string>();
   for (const installation of payload.installations.slice(0, 100)) {
     if (!Number.isSafeInteger(installation.id) || (installation.id as number) <= 0) continue;
     const response = await fetcher(`https://api.github.com/user/installations/${installation.id}/repositories?per_page=100`, { headers: headers(token) });
     if (!response.ok) throw new Error(await safeError(response));
     const repositories = await response.json() as { repositories?: Array<{ full_name?: unknown }> };
-    if (Array.isArray(repositories.repositories) && repositories.repositories.some(item => typeof item.full_name === "string" && item.full_name.toLowerCase() === repo.toLowerCase())) return;
+    if (!Array.isArray(repositories.repositories)) throw new Error("GitHub returned an incomplete repository list.");
+    repositories.repositories.forEach(item => { if (typeof item.full_name === "string" && validRepo(item.full_name)) names.add(item.full_name); });
   }
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+export async function listPatRepositories(token: string, fetcher: typeof fetch = fetch): Promise<string[]> {
+  const response = await fetcher("https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member", { headers: headers(token) });
+  if (!response.ok) throw new Error(await safeError(response));
+  const repositories = await response.json() as Array<{ full_name?: unknown }>;
+  if (!Array.isArray(repositories)) throw new Error("GitHub returned an incomplete repository list.");
+  return [...new Set(repositories.flatMap(item => typeof item.full_name === "string" && validRepo(item.full_name) ? [item.full_name] : []))];
+}
+
+export async function verifyGithubAppRepoAccess(repo: string, token: string, fetcher: typeof fetch = fetch): Promise<void> {
+  if (!validRepo(repo)) throw new Error("Enter a repository as owner/name.");
+  if ((await listGithubAppRepositories(token, fetcher)).some(name => name.toLowerCase() === repo.toLowerCase())) return;
   throw new Error("The selected GitHub App is not installed with access to this repository. Check its installation and repository selection.");
 }
 

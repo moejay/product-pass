@@ -104,6 +104,8 @@ export type RequestMessage =
   | { type: "BOOTSTRAP" }
   | { type: "CREATE_SESSION"; title: string }
   | { type: "SET_ACTIVE_SESSION"; sessionId: string }
+  | { type: "SET_GITHUB_REPO"; repo: string }
+  | { type: "SEARCH_GITHUB_REPOS"; query: string }
   | { type: "FINISH_SESSION"; sessionId: string }
   | { type: "DELETE_SESSION"; sessionId: string }
   | { type: "ENABLE_ORIGIN"; origin: string; tabId: number }

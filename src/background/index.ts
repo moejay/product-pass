@@ -4,13 +4,14 @@ import { annotationRevision, MAX_NOTE_TEXT, MAX_POINTS, originPattern, safeUrl, 
 import { organize } from "./ai";
 import { cancelCodexDeviceFlow, CODEX_DEVICE_ALARM, disconnectCodex, pollCodexDeviceFlow, resumeCodexDeviceFlow, startCodexDeviceFlow } from "./codex-auth";
 import { organizeWithCodex } from "./codex";
-import { publish, verifyGithubAppRepoAccess } from "./github";
+import { listGithubAppRepositories, listPatRepositories, publish, verifyGithubAppRepoAccess } from "./github";
 import { cancelGithubDeviceFlow, disconnectGithubApp, getGithubAppToken, GITHUB_DEVICE_ALARM, pollGithubDeviceFlow, resumeGithubDeviceFlow, startGithubDeviceFlow } from "./github-device";
 import { captureScreenshot, deleteScreenshot, screenshotDataUrl } from "./screenshots";
 import { credentialsStatus, getCredentials, getState, saveSettings, updateState } from "./state";
 
 const uuid = () => crypto.randomUUID();
 const now = () => Date.now();
+let repositoryCache: { identity: string; expiresAt: number; names: string[] } | undefined;
 
 function activeSession(state: Awaited<ReturnType<typeof getState>>): ReviewSession {
   const session = state.sessions.find(item => item.id === state.activeSessionId);
@@ -83,6 +84,21 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
         state.activeSessionId = message.sessionId;
       });
       await refreshContentScripts(); return undefined;
+    }
+    case "SET_GITHUB_REPO": {
+      const repo = message.repo.trim(); if (repo && !validRepo(repo)) throw new Error("Repository must be owner/name.");
+      await updateState(state => { state.settings.githubRepo = repo; }); return undefined;
+    }
+    case "SEARCH_GITHUB_REPOS": {
+      if (typeof message.query !== "string" || message.query.length > 120) throw new Error("Invalid repository search.");
+      const state = await getState(); const identity = `${state.settings.githubAuth}:${state.settings.githubAppClientId}`;
+      let names = repositoryCache?.identity === identity && repositoryCache.expiresAt > now() ? repositoryCache.names : undefined;
+      if (!names) {
+        if (state.settings.githubAuth === "github-app") names = await listGithubAppRepositories(await getGithubAppToken(state.settings.githubAppClientId));
+        else names = await listPatRepositories((await getCredentials()).githubToken);
+        repositoryCache = { identity, expiresAt: now() + 60_000, names };
+      }
+      const query = message.query.trim().toLowerCase(); return names.filter(name => !query || name.toLowerCase().includes(query)).slice(0, 50);
     }
     case "FINISH_SESSION": {
       await updateState(state => {
