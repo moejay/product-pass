@@ -1,5 +1,5 @@
 import { ext } from "../shared/browser";
-import type { Anchor, Annotation, CaptureKind, ElementAnchor, FreehandAnchor, Point, Rect } from "../shared/model";
+import type { Anchor, Annotation, CaptureKind, ElementAnchor, FreehandAnchor, PageAnnotations, Point, Rect } from "../shared/model";
 import { MAX_NOTE_TEXT, MAX_POINTS } from "../shared/pure";
 
 declare global { interface Window { __productPassLoaded?: boolean } }
@@ -16,12 +16,13 @@ function start(): void {
   document.documentElement.append(host);
   const root = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
-  style.textContent = `:host{all:initial}.layer{position:fixed;inset:0;pointer-events:none}.box{position:fixed;border:3px solid #7c3aed;background:#7c3aed22;box-sizing:border-box}.candidate{border-color:#f97316;background:#f9731622}.hint{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#171717;color:white;padding:9px 13px;border-radius:6px;font:14px system-ui;box-shadow:0 2px 8px #0005}.draw{position:fixed;inset:0;width:100%;height:100%;pointer-events:auto;cursor:crosshair;touch-action:none}@media(forced-colors:active){.box{border-color:Highlight;background:transparent}}`;
+  style.textContent = `:host{all:initial}.layer{position:fixed;inset:0;pointer-events:none}.box{position:fixed;border:3px solid #ff633f;background:#ff633f1f;box-sizing:border-box}.candidate{border-color:#ffb020;background:#ffb02022}.annotation-marker{position:fixed;z-index:2;display:flex;align-items:center;max-width:min(260px,70vw);height:26px;padding:0;border:2px solid #fff;border-radius:3px;background:#c74625;color:#fff;box-shadow:0 2px 8px #0007;font:700 12px/1 system-ui;pointer-events:auto;cursor:pointer}.annotation-number{display:grid;place-items:center;flex:0 0 24px;height:22px}.annotation-caption{display:none;min-width:0;padding:0 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.annotation-marker:hover .annotation-caption,.annotation-marker:focus-visible .annotation-caption{display:block}.annotation-marker:focus-visible{outline:3px solid #64a8ff;outline-offset:2px}.saved-path{pointer-events:stroke;cursor:pointer}.saved-path:hover,.saved-path:focus{stroke-width:5}.hint{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#171717;color:white;padding:9px 13px;border-radius:4px;font:14px system-ui;box-shadow:0 2px 8px #0005}.draw{position:fixed;inset:0;width:100%;height:100%;pointer-events:auto;cursor:crosshair;touch-action:none}@media(forced-colors:active){.box{border-color:Highlight;background:transparent}.annotation-marker{border:2px solid ButtonText;background:ButtonFace;color:ButtonText}}`;
   const savedLayer = document.createElement("div"); savedLayer.className = "layer";
   const activeLayer = document.createElement("div"); activeLayer.className = "layer";
   root.append(style, savedLayer, activeLayer);
 
   let notes: Annotation[] = [];
+  let annotationsVisible = true;
   let pageUrl = location.href;
   let cancelCapture: (() => void) | null = null;
 
@@ -32,15 +33,13 @@ function start(): void {
   }
 
   async function refresh(): Promise<void> {
-    try { notes = await rpc<Annotation[]>({ type: "GET_PAGE", url: location.href }); renderSaved(); } catch { notes = []; renderSaved(); }
+    try { const page = await rpc<PageAnnotations>({ type: "GET_PAGE", url: location.href }); notes = page.annotations; annotationsVisible = page.visible; renderSaved(); }
+    catch { notes = []; annotationsVisible = false; renderSaved(); }
   }
 
   function renderSaved(): void {
-    savedLayer.replaceChildren();
-    for (const note of notes) {
-      if (note.anchor.kind === "element") renderElement(note.anchor);
-      else renderPath(note.anchor);
-    }
+    savedLayer.replaceChildren(); if (!annotationsVisible) return;
+    [...notes].sort((a, b) => b.createdAt - a.createdAt).forEach((note, index) => { if (note.anchor.kind === "element") renderElement(note, index); else renderPath(note, index); });
   }
 
   function box(rect: DOMRect | Rect, className = "box"): HTMLDivElement {
@@ -49,21 +48,37 @@ function start(): void {
     return item;
   }
 
-  function renderElement(anchor: ElementAnchor): void {
-    let element: Element | null = null;
-    try { element = document.querySelector(anchor.selector); } catch { return; }
-    if (!element) return;
-    const rect = element.getBoundingClientRect();
-    if (rect.width && rect.height) savedLayer.append(box(rect));
+  function selectAnnotation(note: Annotation, event: Event): void {
+    event.preventDefault(); event.stopPropagation();
+    void rpc({ type: "SELECT_ANNOTATION", annotationId: note.id, url: location.href }).catch(() => undefined);
+  }
+  function marker(note: Annotation, index: number, rect: Rect): HTMLButtonElement {
+    const item = document.createElement("button"); item.type = "button"; item.className = "annotation-marker";
+    const number = document.createElement("span"); number.className = "annotation-number"; number.textContent = String(index + 1);
+    const caption = document.createElement("span"); caption.className = "annotation-caption"; caption.textContent = (note.text || note.contextLabel || note.pageTitle || "Open annotation").slice(0, 100);
+    item.setAttribute("aria-label", `Open annotation ${index + 1}: ${caption.textContent}`);
+    Object.assign(item.style, { left: `${Math.max(4, Math.min(innerWidth - 30, rect.x))}px`, top: `${Math.max(4, Math.min(innerHeight - 30, rect.y - 29))}px` });
+    item.append(number, caption); item.addEventListener("click", event => selectAnnotation(note, event)); return item;
   }
 
-  function renderPath(anchor: FreehandAnchor): void {
+  function renderElement(note: Annotation, index: number): void {
+    if (note.anchor.kind !== "element") return; const anchor = note.anchor;
+    let selected: Element | null = null;
+    try { selected = document.querySelector(anchor.selector); } catch { return; }
+    if (!selected) return;
+    const rect = selected.getBoundingClientRect();
+    if (rect.width && rect.height) savedLayer.append(box(rect), marker(note, index, { x: rect.x, y: rect.y, width: rect.width, height: rect.height }));
+  }
+
+  function renderPath(note: Annotation, index: number): void {
+    if (note.anchor.kind !== "freehand") return; const anchor = note.anchor;
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     Object.assign(svg.style, { position: "fixed", inset: "0", width: "100%", height: "100%", overflow: "visible" });
-    const polygon = document.createElementNS(svg.namespaceURI, "polygon");
-    polygon.setAttribute("points", anchor.points.map(point => `${point.x - scrollX},${point.y - scrollY}`).join(" "));
-    polygon.setAttribute("fill", "#7c3aed22"); polygon.setAttribute("stroke", "#7c3aed"); polygon.setAttribute("stroke-width", "3");
-    svg.append(polygon); savedLayer.append(svg);
+    const polygon = document.createElementNS(svg.namespaceURI, "polygon"); polygon.classList.add("saved-path"); polygon.setAttribute("tabindex", "0");
+    polygon.setAttribute("aria-label", `Open annotation ${index + 1}`); polygon.setAttribute("points", anchor.points.map(point => `${point.x - scrollX},${point.y - scrollY}`).join(" "));
+    polygon.setAttribute("fill", "#ff633f1f"); polygon.setAttribute("stroke", "#ff633f"); polygon.setAttribute("stroke-width", "3"); polygon.addEventListener("click", event => selectAnnotation(note, event)); polygon.addEventListener("keydown", event => { const key = (event as KeyboardEvent).key; if (key === "Enter" || key === " ") selectAnnotation(note, event); });
+    const bounds = { ...anchor.bounds, x: anchor.bounds.x - scrollX, y: anchor.bounds.y - scrollY };
+    svg.append(polygon); savedLayer.append(svg, marker(note, index, bounds));
   }
 
   function selectorFor(element: Element): string {

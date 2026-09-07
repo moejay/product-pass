@@ -14,6 +14,8 @@ const deviceResponse = {
 
 test("new settings use the public Product Pass GitHub App while explicit PAT settings survive", () => {
   const settings = normalizeSettings({ aiEndpoint: "https://example.test/chat", aiModel: "model", githubRepo: "owner/repo" });
+  assert.equal(settings.showAnnotations, true);
+  assert.equal(normalizeSettings({ showAnnotations: false }).showAnnotations, false);
   assert.equal(settings.aiProvider, "codex-subscription");
   assert.equal(normalizeSettings({ aiProvider: "openai-compatible" }).aiProvider, "openai-compatible");
   assert.equal(settings.githubAuth, "github-app");

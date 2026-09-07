@@ -6,6 +6,7 @@ import { githubDeviceStatus } from "./github-device";
 const STATE_KEY = "productPassState";
 const CREDENTIALS_KEY = "productPassCredentials";
 const defaultSettings: Settings = {
+  showAnnotations: true,
   aiProvider: "codex-subscription",
   aiEndpoint: "https://api.openai.com/v1/chat/completions",
   aiModel: "gpt-4o-mini",
@@ -15,7 +16,7 @@ const defaultSettings: Settings = {
   githubAppClientId: "Iv23li0eh1QsLt4ca7LN",
   githubAppInstallUrl: "https://github.com/apps/product-pass-by-dotdev/installations/new"
 };
-const defaults: AppState = { sessions: [], activeSessionId: null, enabledOrigins: [], settings: defaultSettings };
+const defaults: AppState = { sessions: [], activeSessionId: null, selectedAnnotationId: null, enabledOrigins: [], settings: defaultSettings };
 let queue: Promise<unknown> = Promise.resolve();
 
 export function normalizeSettings(value: unknown): Settings {
@@ -23,6 +24,7 @@ export function normalizeSettings(value: unknown): Settings {
   return {
     ...defaultSettings,
     ...saved,
+    showAnnotations: saved.showAnnotations !== false,
     aiProvider: saved.aiProvider === "openai-compatible" ? "openai-compatible" : "codex-subscription",
     githubAuth: saved.githubAuth === "pat" ? "pat" : "github-app",
     aiEndpoint: typeof saved.aiEndpoint === "string" ? saved.aiEndpoint : defaultSettings.aiEndpoint,
@@ -41,6 +43,7 @@ export async function getState(): Promise<AppState> {
     ...defaults,
     ...saved,
     sessions: Array.isArray(saved?.sessions) ? saved.sessions : [],
+    selectedAnnotationId: typeof saved?.selectedAnnotationId === "string" ? saved.selectedAnnotationId : null,
     enabledOrigins: Array.isArray(saved?.enabledOrigins) ? saved.enabledOrigins : [],
     settings: normalizeSettings(saved?.settings)
   };

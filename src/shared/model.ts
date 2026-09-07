@@ -56,6 +56,7 @@ export type AIProvider = "openai-compatible" | "codex-subscription";
 export type GithubAuthMode = "pat" | "github-app";
 
 export interface Settings {
+  showAnnotations: boolean;
   aiProvider: AIProvider;
   aiEndpoint: string;
   aiModel: string;
@@ -69,6 +70,7 @@ export interface Settings {
 export interface AppState {
   sessions: ReviewSession[];
   activeSessionId: string | null;
+  selectedAnnotationId: string | null;
   enabledOrigins: string[];
   settings: Settings;
 }
@@ -111,6 +113,9 @@ export type RequestMessage =
   | { type: "ENABLE_ORIGIN"; origin: string; tabId: number }
   | { type: "BEGIN_CAPTURE"; mode: CaptureKind; tabId: number }
   | { type: "GET_PAGE"; url: string }
+  | { type: "SELECT_ANNOTATION"; annotationId: string; url: string }
+  | { type: "CLEAR_ANNOTATION_SELECTION" }
+  | { type: "SET_ANNOTATIONS_VISIBLE"; visible: boolean }
   | { type: "GET_SCREENSHOT"; annotationId: string }
   | { type: "PAGE_CHANGED"; url: string }
   | { type: "SAVE_ANNOTATION"; annotation: Omit<Annotation, "id" | "sessionId" | "createdAt" | "updatedAt" | "safeUrl" | "screenshot"> & { viewport: CaptureViewport } }
@@ -127,6 +132,8 @@ export type RequestMessage =
   | { type: "START_CODEX_DEVICE_FLOW" }
   | { type: "CANCEL_CODEX_DEVICE_FLOW" }
   | { type: "DISCONNECT_CODEX" };
+
+export interface PageAnnotations { annotations: Annotation[]; visible: boolean }
 
 export interface Bootstrap {
   state: AppState;

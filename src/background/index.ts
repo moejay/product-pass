@@ -61,7 +61,7 @@ async function refreshContentScripts(): Promise<void> {
 
 async function handle(message: RequestMessage, sender: chrome.runtime.MessageSender): Promise<unknown> {
   if (!message || typeof message.type !== "string") throw new Error("Invalid request.");
-  const contentRequests = new Set(["GET_PAGE", "PAGE_CHANGED", "SAVE_ANNOTATION"]);
+  const contentRequests = new Set(["GET_PAGE", "SELECT_ANNOTATION", "PAGE_CHANGED", "SAVE_ANNOTATION"]);
   const fromExtensionPage = sender.url?.startsWith(ext.runtime.getURL("")) ?? false;
   if ((contentRequests.has(message.type) && !sender.tab) || (!contentRequests.has(message.type) && !fromExtensionPage)) throw new Error("This request is not allowed from that extension context.");
   switch (message.type) {
@@ -81,9 +81,16 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
     case "SET_ACTIVE_SESSION": {
       await updateState(state => {
         if (!state.sessions.some(session => session.id === message.sessionId)) throw new Error("Session not found.");
-        state.activeSessionId = message.sessionId;
+        state.activeSessionId = message.sessionId; state.selectedAnnotationId = null;
       });
       await refreshContentScripts(); return undefined;
+    }
+    case "SET_ANNOTATIONS_VISIBLE": {
+      await updateState(state => { state.settings.showAnnotations = message.visible === true; });
+      await refreshContentScripts(); return undefined;
+    }
+    case "CLEAR_ANNOTATION_SELECTION": {
+      await updateState(state => { state.selectedAnnotationId = null; }); return undefined;
     }
     case "SET_GITHUB_REPO": {
       const repo = message.repo.trim(); if (repo && !validRepo(repo)) throw new Error("Repository must be owner/name.");
@@ -105,7 +112,7 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
         const session = state.sessions.find(item => item.id === message.sessionId);
         if (!session) throw new Error("Session not found.");
         session.status = "complete"; session.updatedAt = now();
-        if (state.activeSessionId === session.id) state.activeSessionId = null;
+        if (state.activeSessionId === session.id) { state.activeSessionId = null; state.selectedAnnotationId = null; }
       });
       await refreshContentScripts(); return undefined;
     }
@@ -116,7 +123,7 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
         if (!session) throw new Error("Session not found.");
         screenshotIds = session.annotations.flatMap(note => note.screenshot ? [note.screenshot.id] : []);
         state.sessions = state.sessions.filter(item => item.id !== session.id);
-        if (state.activeSessionId === session.id) state.activeSessionId = null;
+        if (state.activeSessionId === session.id) { state.activeSessionId = null; state.selectedAnnotationId = null; }
       });
       await Promise.all(screenshotIds.map(id => deleteScreenshot(id).catch(() => undefined)));
       await refreshContentScripts(); return undefined;
@@ -136,10 +143,23 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
       return ext.tabs.sendMessage(message.tabId, { type: "START_CAPTURE", mode: message.mode });
     }
     case "GET_PAGE": {
-      if (!validHttpUrl(message.url)) return [];
+      if (!validHttpUrl(message.url)) return { annotations: [], visible: false };
       const state = await getState();
       const session = state.sessions.find(item => item.id === state.activeSessionId);
-      return session?.annotations.filter(note => note.url === message.url) ?? [];
+      return { annotations: session?.annotations.filter(note => note.url === message.url) ?? [], visible: state.settings.showAnnotations };
+    }
+    case "SELECT_ANNOTATION": {
+      if (!sender.tab || sender.tab.url !== message.url || !validHttpUrl(message.url)) throw new Error("Annotation page did not match its sender.");
+      await updateState(state => {
+        const session = activeSession(state); const note = session.annotations.find(item => item.id === message.annotationId && item.url === message.url);
+        if (!note) throw new Error("Annotation not found."); state.selectedAnnotationId = note.id;
+      });
+      if (sender.tab.id !== undefined) {
+        let opened = false;
+        try { if (ext.sidePanel?.open) { await ext.sidePanel.open({ tabId: sender.tab.id }); opened = true; } else if (firefoxExt.sidebarAction?.open) { await firefoxExt.sidebarAction.open(); opened = true; } } catch { /* browser may reject sidebar opening */ }
+        if (!opened) await ext.tabs.create({ url: ext.runtime.getURL("sidebar/index.html") });
+      }
+      return undefined;
     }
     case "GET_SCREENSHOT": {
       const state = await getState(); const session = activeSession(state);
@@ -195,6 +215,7 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
         screenshotId = session.annotations.find(note => note.id === message.annotationId)?.screenshot?.id;
         session.annotations = session.annotations.filter(note => note.id !== message.annotationId);
         if (before === session.annotations.length) throw new Error("Note not found.");
+        if (state.selectedAnnotationId === message.annotationId) state.selectedAnnotationId = null;
         session.drafts = []; session.status = "capturing"; session.updatedAt = now();
       });
       if (screenshotId) await deleteScreenshot(screenshotId).catch(() => undefined);

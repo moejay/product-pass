@@ -13,6 +13,8 @@ let captureOpen = true;
 let reviewOpen = true;
 let setupOpen: boolean | null = null;
 let repoSearchTimer: number | undefined;
+let focusedAnnotationId: string | null = null;
+let annotationFocusTimer: number | undefined;
 const screenshotCache = new Map<string, string>();
 const screenshotLoads = new Map<string, Promise<string>>();
 
@@ -71,6 +73,8 @@ function activeSession(): ReviewSession | undefined { return data?.state.session
 
 function render(): void {
   if (!data) return;
+  const pendingSelection = data.state.selectedAnnotationId;
+  if (pendingSelection) { focusedAnnotationId = pendingSelection; captureOpen = true; }
   app.replaceChildren();
   pageStatus.textContent = data.tab.supported ? `${data.tab.title || "Untitled page"} — ${safeUrl(data.tab.url)}` : "Annotations unavailable on this page";
   renderSessionChooser(data.state);
@@ -80,6 +84,12 @@ function render(): void {
   renderCapture(session);
   if (session.drafts.length) renderDrafts(session);
   renderSettings(data.state);
+  if (pendingSelection) requestAnimationFrame(() => {
+    const item = app.querySelector<HTMLElement>(`[data-annotation-id="${CSS.escape(pendingSelection)}"]`);
+    item?.scrollIntoView({ behavior: "smooth", block: "center" }); item?.focus({ preventScroll: true });
+    window.setTimeout(() => void rpc({ type: "CLEAR_ANNOTATION_SELECTION" }), 600); window.clearTimeout(annotationFocusTimer);
+    annotationFocusTimer = window.setTimeout(() => { focusedAnnotationId = null; app.querySelector(`[data-annotation-id="${CSS.escape(pendingSelection)}"]`)?.classList.remove("selected"); }, 2_500);
+  });
 }
 
 function renderSessionChooser(state: AppState): void {
@@ -174,6 +184,8 @@ async function removeSession(session: ReviewSession): Promise<void> {
 function renderCapture(session: ReviewSession): void {
   const section = element("details", undefined, "workflow-section"); section.open = captureOpen; section.addEventListener("toggle", () => { captureOpen = section.open; });
   const heading = element("summary", undefined, "section-heading"); heading.append(element("span", "1. Capture", "section-title"), element("span", `${session.annotations.length} note${session.annotations.length === 1 ? "" : "s"}`, "count")); section.append(heading);
+  const display = element("label", undefined, "annotation-toggle"); const toggle = element("input"); toggle.type = "checkbox"; toggle.checked = data!.state.settings.showAnnotations; toggle.addEventListener("change", () => void run(() => rpc({ type: "SET_ANNOTATIONS_VISIBLE", visible: toggle.checked })));
+  display.append(toggle, element("span", "Show annotations on page")); section.append(display);
   if (!data!.tab.supported) section.append(element("p", "Annotations are unavailable on this page. Open a regular HTTP or HTTPS page.", "warning"));
   else if (!data!.tab.enabled) section.append(button("Enable on this site", enableSite));
   else {
@@ -182,7 +194,7 @@ function renderCapture(session: ReviewSession): void {
     section.append(controls);
   }
   for (const note of [...session.annotations].sort((a, b) => b.createdAt - a.createdAt)) {
-    const item = element("article", undefined, "note card");
+    const item = element("article", undefined, `note card${focusedAnnotationId === note.id ? " selected" : ""}`); item.dataset.annotationId = note.id; item.tabIndex = -1;
     const noteHead = element("div", undefined, "note-heading"); noteHead.append(element("span", note.kind === "element" ? "Element" : "Freehand", "badge"), element("span", new Date(note.createdAt).toLocaleDateString(), "meta")); item.append(noteHead, element("h3", note.pageTitle || "Untitled page"), element("p", note.safeUrl, "meta"));
     if (note.screenshot) item.append(screenshotFigure(note));
     item.append(element("p", note.text || "No note text", note.text ? "note-text" : "meta note-text"));
@@ -335,6 +347,7 @@ function renderSettings(state: AppState): void {
   aiProvider.addEventListener("change", syncSettingsVisibility); githubAuth.addEventListener("change", syncSettingsVisibility); syncSettingsVisibility();
 
   const settingsValue = () => ({
+    showAnnotations: state.settings.showAnnotations,
     aiProvider: aiProvider.value as "openai-compatible" | "codex-subscription",
     aiEndpoint: endpoint.value,
     aiModel: model.value,
