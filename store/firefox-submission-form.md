@@ -24,7 +24,7 @@ The manifest declares these required categories:
 Product Pass has no publisher-operated application backend, analytics, advertising, sale of data, or unrelated data use. Screenshots stay local. AI/GitHub transfers are user-initiated and described in the privacy policy.
 
 ## Source code
-Upload `product-pass-0.4.0-source.zip` when AMO requests source for the generated JavaScript bundles.
+Upload `product-pass-0.5.0-source.zip` when AMO requests source for the generated JavaScript bundles.
 
 Build instructions:
 

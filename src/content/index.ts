@@ -16,7 +16,7 @@ function start(): void {
   document.documentElement.append(host);
   const root = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
-  style.textContent = `:host{all:initial}.layer{position:fixed;inset:0;pointer-events:none}.box{position:fixed;border:3px solid #ff633f;background:#ff633f1f;box-sizing:border-box}.candidate{border-color:#ffb020;background:#ffb02022}.annotation-marker{position:fixed;z-index:2;display:flex;align-items:center;max-width:min(260px,70vw);height:26px;padding:0;border:2px solid #fff;border-radius:3px;background:#c74625;color:#fff;box-shadow:0 2px 8px #0007;font:700 12px/1 system-ui;pointer-events:auto;cursor:pointer}.annotation-number{display:grid;place-items:center;flex:0 0 24px;height:22px}.annotation-caption{display:none;min-width:0;padding:0 7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.annotation-marker:hover .annotation-caption,.annotation-marker:focus-visible .annotation-caption{display:block}.annotation-marker:focus-visible{outline:3px solid #64a8ff;outline-offset:2px}.saved-path{pointer-events:stroke;cursor:pointer}.saved-path:hover,.saved-path:focus{stroke-width:5}.hint{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#171717;color:white;padding:9px 13px;border-radius:4px;font:14px system-ui;box-shadow:0 2px 8px #0005}.draw{position:fixed;inset:0;width:100%;height:100%;pointer-events:auto;cursor:crosshair;touch-action:none}@media(forced-colors:active){.box{border-color:Highlight;background:transparent}.annotation-marker{border:2px solid ButtonText;background:ButtonFace;color:ButtonText}}`;
+  style.textContent = `:host{all:initial}.layer{position:fixed;inset:0;pointer-events:none}.box{position:fixed;border:3px solid #ff633f;background:#ff633f1f;box-sizing:border-box}.candidate{border-color:#ffb020;background:#ffb02022}.annotation-marker{position:fixed;z-index:2;display:flex;align-items:flex-start;max-width:min(520px,calc(100vw - 12px));min-height:26px;padding:0;border:2px solid #fff;border-radius:3px;background:#c74625;color:#fff;box-shadow:0 2px 8px #0007;font:700 12px/1 system-ui;pointer-events:auto;cursor:pointer}.annotation-number{display:grid;place-items:center;flex:0 0 24px;height:22px}.annotation-caption{display:none;min-width:0;max-width:min(480px,calc(100vw - 48px));max-height:240px;padding:5px 8px 6px;overflow:auto;text-align:left;white-space:normal;overflow-wrap:anywhere;font:500 12px/1.4 system-ui}.annotation-marker.reverse{flex-direction:row-reverse}.annotation-marker:hover .annotation-caption,.annotation-marker:focus-visible .annotation-caption{display:block}.annotation-marker:focus-visible{outline:3px solid #64a8ff;outline-offset:2px}.saved-path{pointer-events:stroke;cursor:pointer}.saved-path:hover,.saved-path:focus{stroke-width:5}.hint{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#171717;color:white;padding:9px 13px;border-radius:4px;font:14px system-ui;box-shadow:0 2px 8px #0005}.draw{position:fixed;inset:0;width:100%;height:100%;pointer-events:auto;cursor:crosshair;touch-action:none}@media(forced-colors:active){.box{border-color:Highlight;background:transparent}.annotation-marker{border:2px solid ButtonText;background:ButtonFace;color:ButtonText}}`;
   const savedLayer = document.createElement("div"); savedLayer.className = "layer";
   const activeLayer = document.createElement("div"); activeLayer.className = "layer";
   root.append(style, savedLayer, activeLayer);
@@ -52,12 +52,15 @@ function start(): void {
     event.preventDefault(); event.stopPropagation();
     void rpc({ type: "SELECT_ANNOTATION", annotationId: note.id, url: location.href }).catch(() => undefined);
   }
-  function marker(note: Annotation, index: number, rect: Rect): HTMLButtonElement {
+  function marker(note: Annotation, index: number, rect: Rect, centered = false): HTMLButtonElement {
     const item = document.createElement("button"); item.type = "button"; item.className = "annotation-marker";
     const number = document.createElement("span"); number.className = "annotation-number"; number.textContent = String(index + 1);
-    const caption = document.createElement("span"); caption.className = "annotation-caption"; caption.textContent = (note.text || note.contextLabel || note.pageTitle || "Open annotation").slice(0, 100);
+    const caption = document.createElement("span"); caption.className = "annotation-caption"; caption.textContent = (note.text || note.contextLabel || note.pageTitle || "Open annotation").slice(0, 500);
     item.setAttribute("aria-label", `Open annotation ${index + 1}: ${caption.textContent}`);
-    Object.assign(item.style, { left: `${Math.max(4, Math.min(innerWidth - 30, rect.x))}px`, top: `${Math.max(4, Math.min(innerHeight - 30, rect.y - 29))}px` });
+    const left = centered ? rect.x - 13 : rect.x; const top = centered ? rect.y - 13 : rect.y - 29;
+    if (rect.x > innerWidth / 2) { item.classList.add("reverse"); item.style.right = `${Math.max(4, innerWidth - Math.min(innerWidth - 4, left + 26))}px`; }
+    else item.style.left = `${Math.max(4, Math.min(innerWidth - 30, left))}px`;
+    item.style.top = `${Math.max(4, Math.min(innerHeight - 30, top))}px`;
     item.append(number, caption); item.addEventListener("click", event => selectAnnotation(note, event)); return item;
   }
 
@@ -77,8 +80,9 @@ function start(): void {
     const polygon = document.createElementNS(svg.namespaceURI, "polygon"); polygon.classList.add("saved-path"); polygon.setAttribute("tabindex", "0");
     polygon.setAttribute("aria-label", `Open annotation ${index + 1}`); polygon.setAttribute("points", anchor.points.map(point => `${point.x - scrollX},${point.y - scrollY}`).join(" "));
     polygon.setAttribute("fill", "#ff633f1f"); polygon.setAttribute("stroke", "#ff633f"); polygon.setAttribute("stroke-width", "3"); polygon.addEventListener("click", event => selectAnnotation(note, event)); polygon.addEventListener("keydown", event => { const key = (event as KeyboardEvent).key; if (key === "Enter" || key === " ") selectAnnotation(note, event); });
-    const bounds = { ...anchor.bounds, x: anchor.bounds.x - scrollX, y: anchor.bounds.y - scrollY };
-    svg.append(polygon); savedLayer.append(svg, marker(note, index, bounds));
+    const pathPoint = anchor.points.reduce((top, point) => point.y < top.y ? point : top);
+    const markerPoint = { x: pathPoint.x - scrollX, y: pathPoint.y - scrollY, width: 0, height: 0 };
+    svg.append(polygon); savedLayer.append(svg, marker(note, index, markerPoint, true));
   }
 
   function selectorFor(element: Element): string {
