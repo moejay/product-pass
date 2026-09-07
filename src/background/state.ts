@@ -10,10 +10,10 @@ const defaultSettings: Settings = {
   aiEndpoint: "https://api.openai.com/v1/chat/completions",
   aiModel: "gpt-4o-mini",
   codexModel: "gpt-5.4",
-  githubAuth: "pat",
+  githubAuth: "github-app",
   githubRepo: "",
-  githubAppClientId: "",
-  githubAppInstallUrl: ""
+  githubAppClientId: "Iv23li0eh1QsLt4ca7LN",
+  githubAppInstallUrl: "https://github.com/apps/product-pass-by-dotdev/installations/new"
 };
 const defaults: AppState = { sessions: [], activeSessionId: null, enabledOrigins: [], settings: defaultSettings };
 let queue: Promise<unknown> = Promise.resolve();
@@ -24,13 +24,13 @@ export function normalizeSettings(value: unknown): Settings {
     ...defaultSettings,
     ...saved,
     aiProvider: saved.aiProvider === "codex-subscription" ? "codex-subscription" : "openai-compatible",
-    githubAuth: saved.githubAuth === "github-app" ? "github-app" : "pat",
+    githubAuth: saved.githubAuth === "pat" ? "pat" : "github-app",
     aiEndpoint: typeof saved.aiEndpoint === "string" ? saved.aiEndpoint : defaultSettings.aiEndpoint,
     aiModel: typeof saved.aiModel === "string" ? saved.aiModel : defaultSettings.aiModel,
     codexModel: typeof saved.codexModel === "string" ? saved.codexModel : defaultSettings.codexModel,
     githubRepo: typeof saved.githubRepo === "string" ? saved.githubRepo : "",
-    githubAppClientId: typeof saved.githubAppClientId === "string" ? saved.githubAppClientId : "",
-    githubAppInstallUrl: typeof saved.githubAppInstallUrl === "string" ? saved.githubAppInstallUrl : ""
+    githubAppClientId: typeof saved.githubAppClientId === "string" && saved.githubAppClientId.trim() ? saved.githubAppClientId : defaultSettings.githubAppClientId,
+    githubAppInstallUrl: typeof saved.githubAppInstallUrl === "string" && saved.githubAppInstallUrl.trim() ? saved.githubAppInstallUrl : defaultSettings.githubAppInstallUrl
   };
 }
 

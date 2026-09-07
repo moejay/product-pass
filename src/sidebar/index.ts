@@ -11,6 +11,7 @@ let busy = false;
 let settingsOpen = false;
 let captureOpen = true;
 let reviewOpen = true;
+let setupOpen: boolean | null = null;
 const screenshotCache = new Map<string, string>();
 const screenshotLoads = new Map<string, Promise<string>>();
 
@@ -72,8 +73,9 @@ function render(): void {
   app.replaceChildren();
   pageStatus.textContent = data.tab.supported ? `${data.tab.title || "Untitled page"} — ${safeUrl(data.tab.url)}` : "Annotations unavailable on this page";
   renderSessionChooser(data.state);
+  renderConnectionChecklist(data.state);
   const session = activeSession();
-  if (!session) { renderCreate(); renderSettings(data.state); return; }
+  if (!session) { if (!data.state.sessions.length) renderCreate(); renderSettings(data.state); return; }
   renderCapture(session);
   if (session.drafts.length) renderDrafts(session);
   renderSettings(data.state);
@@ -89,7 +91,7 @@ function renderSessionChooser(state: AppState): void {
     const option = element("option", `${session.title} — ${session.annotations.length} notes — ${session.status}`); option.value = session.id; option.selected = session.id === state.activeSessionId; select.append(option);
   }
   select.addEventListener("change", () => { if (select.value) void run(() => rpc({ type: "SET_ACTIVE_SESSION", sessionId: select.value })); });
-  const actions = element("div", undefined, "session-actions"); actions.append(button("New session", () => createSession(), "secondary"));
+  const actions = element("div", undefined, "session-actions"); actions.append(button("New review", () => createSession(), "secondary"));
   const session = activeSession();
   if (session) {
     actions.append(button("Finish", () => finishSession(session), "secondary"), button("Delete session", () => removeSession(session), "danger"));
@@ -98,14 +100,34 @@ function renderSessionChooser(state: AppState): void {
 }
 
 function renderCreate(): void {
-  const section = element("section"); section.append(element("h2", "Start a review"));
-  const label = element("label", "Session name (optional)"); label.htmlFor = "new-session-name";
-  const input = element("input"); input.id = "new-session-name"; input.maxLength = 120; input.placeholder = "Review — current date and time";
-  section.append(label, input, button("Create session", async () => { await rpc({ type: "CREATE_SESSION", title: input.value }); say("Review session created."); })); app.append(section);
+  const section = element("section", undefined, "empty-state"); section.append(element("h2", "Start your first review"), element("p", "Capture visual feedback across pages, then turn it into reviewed GitHub issues.", "meta"), button("Start review", createSession)); app.append(section);
 }
 async function createSession(): Promise<void> {
-  if (activeSession() && !confirm("Start a new session? Your saved notes remain in the current session.")) return;
-  await rpc({ type: "CREATE_SESSION", title: "" }); say("Review session created.");
+  if (activeSession() && !confirm("Start a new review? Your saved notes remain in the current session.")) return;
+  const title = prompt("Review name (optional):", ""); if (title === null) return;
+  await rpc({ type: "CREATE_SESSION", title: title.slice(0, 120) }); say("Review started.");
+}
+
+function openSettings(): void {
+  settingsOpen = true; render();
+  requestAnimationFrame(() => document.querySelector(".settings-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+}
+function renderConnectionChecklist(state: AppState): void {
+  const usingCodex = state.settings.aiProvider === "codex-subscription";
+  const aiReady = usingCodex ? data!.credentials.codexSubscription.connected : data!.credentials.aiKey;
+  const githubReady = Boolean(state.settings.githubRepo) && (state.settings.githubAuth === "github-app" ? data!.credentials.githubApp.connected : data!.credentials.githubToken);
+  const complete = Number(aiReady) + Number(githubReady);
+  const details = element("details", undefined, "setup-checklist"); details.open = setupOpen ?? complete < 2; details.addEventListener("toggle", () => { setupOpen = details.open; });
+  const summary = element("summary"); summary.append(element("span", "Connections", "section-title"), element("span", `${complete}/2 ready`, "count")); details.append(summary);
+  const list = element("div", undefined, "checklist");
+  const addItem = (checked: boolean, title: string, description: string) => {
+    const row = element("div", undefined, `checklist-item${checked ? " ready" : ""}`); const mark = element("input"); mark.type = "checkbox"; mark.checked = checked; mark.disabled = true; mark.setAttribute("aria-label", `${title}: ${checked ? "ready" : "not configured"}`);
+    const copy = element("div"); copy.append(element("strong", title), element("span", description, "meta")); row.append(mark, copy);
+    if (!checked) row.append(directButton("Configure", openSettings, "secondary compact")); list.append(row);
+  };
+  addItem(aiReady, "AI organization", aiReady ? (usingCodex ? "Codex subscription connected" : "OpenAI-compatible API connected") : "Optional — local grouping remains available");
+  addItem(githubReady, "Issue destination", githubReady ? `GitHub · ${state.settings.githubRepo}` : "Connect GitHub and choose a repository");
+  details.append(list); app.append(details);
 }
 async function finishSession(session: ReviewSession): Promise<void> {
   const unpublished = session.drafts.some(draft => draft.publishState !== "published" && draft.decision === "accepted");

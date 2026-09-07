@@ -12,11 +12,13 @@ const deviceResponse = {
   interval: 5
 };
 
-test("legacy settings migrate to existing OpenAI-compatible and PAT defaults", () => {
+test("new settings use the public Product Pass GitHub App while explicit PAT settings survive", () => {
   const settings = normalizeSettings({ aiEndpoint: "https://example.test/chat", aiModel: "model", githubRepo: "owner/repo" });
   assert.equal(settings.aiProvider, "openai-compatible");
-  assert.equal(settings.githubAuth, "pat");
-  assert.equal(settings.githubAppClientId, "");
+  assert.equal(settings.githubAuth, "github-app");
+  assert.equal(settings.githubAppClientId, "Iv23li0eh1QsLt4ca7LN");
+  assert.equal(settings.githubAppInstallUrl, "https://github.com/apps/product-pass-by-dotdev/installations/new");
+  assert.equal(normalizeSettings({ githubAuth: "pat" }).githubAuth, "pat");
 });
 
 test("device-code parser validates URL and derives bounded poll timing", () => {

@@ -2,6 +2,8 @@
 
 A local-first Chrome and Firefox extension for capturing review annotations, organizing them into editable issue drafts, and publishing accepted drafts to GitHub.
 
+[![Get Product Pass for Firefox](https://moejay.github.io/product-pass/firefox-addons-badge.svg)](https://addons.mozilla.org/firefox/addon/product-pass/)
+
 ## MVP features
 
 - One active review session shared across tabs and page navigation; multiple saved sessions that can be finished, reopened, or permanently deleted.
@@ -78,11 +80,9 @@ Recommended PAT scope: access only to the chosen repository, with **Metadata: re
 
 Product Pass does not own or bundle a GitHub App client ID. A developer or deploying organization must:
 
-1. Register a GitHub App at GitHub, enable **Device Flow**, and grant repository **Issues: Read and write**. Contents permission is not needed for issue creation.
-2. Install the App on the target account/organization and select the repositories it may access. User authorization does not install the App; organization approval may also be required.
-3. Copy the App's public **Client ID** into Product Pass Settings. Optionally add its HTTPS `github.com` installation URL so users can install/configure it. Never add a client secret, private key, or refresh broker credential to this repository or extension.
-4. Select **GitHub App Device Flow**, save, and choose **Connect GitHub App**. Open the exact GitHub verification link, enter the displayed user code, and authorize. Product Pass honors GitHub's polling interval, `slow_down`, cancellation, and code expiry across MV3 worker suspension.
-5. Confirm that the configured repository is included in the App installation. Product Pass checks `/user/installations` and the installation repository list again before publishing.
+Product Pass defaults to the public [Product Pass By DOTDEV GitHub App](https://github.com/apps/product-pass-by-dotdev), with its non-secret client ID and installation URL bundled into the extension. Install it on the target account/organization, select the repositories it may access, enter the target `owner/repository`, then choose **Connect GitHub App**. Open the exact GitHub verification link, enter the displayed user code, and authorize. Product Pass honors GitHub's polling interval, `slow_down`, cancellation, and code expiry across MV3 worker suspension.
+
+Advanced users can override the public client ID and installation URL in Settings with another GitHub App that has **Device Flow** enabled and repository **Issues: Read and write**. Contents permission is not needed. Never add a client secret, private key, or refresh broker credential to this repository or extension. User authorization does not install an App; organization approval may also be required. Product Pass checks `/user/installations` and the installation repository list before publishing.
 
 GitHub App access tokens persist in extension `storage.local`. If GitHub returns an expiry, Product Pass stops using the token at expiry and requires Device Flow again. A standalone extension cannot securely refresh or remotely revoke an expiring GitHub App user token because those operations require the App client secret. **Remove GitHub App token from this browser** clears local token/pending state only. For server-side revocation use GitHub **Settings → Applications → Authorized GitHub Apps**; App uninstallation is separate.
 
