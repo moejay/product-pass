@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Product Pass",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Capture visual website feedback, organize it into issue drafts, and publish approved issues to GitHub.",
   "homepage_url": "https://moejay.github.io/product-pass/",
   "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },

@@ -1,6 +1,6 @@
 {
   "name": "product-pass",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Capture visual website feedback and publish approved issue drafts to GitHub.",
   "license": "MIT",
@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
+    "lint:firefox": "web-ext lint --source-dir dist/firefox --warnings-as-errors",
     "package": "node scripts/package.mjs"
   },
   "devDependencies": {
@@ -19,6 +20,7 @@
     "@types/node": "^22.10.0",
     "esbuild": "^0.25.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "web-ext": "10.6.0"
   }
 }
