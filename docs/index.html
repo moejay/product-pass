@@ -1,1 +1,80 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Product Pass turns visual website feedback into reviewed GitHub issues."><title>Product Pass — visual QA to GitHub</title><link rel="icon" href="icon.svg"><link rel="stylesheet" href="styles.css"></head><body><header><img src="icon.svg" alt=""><strong>Product Pass</strong><nav aria-label="Site"><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="support.html">Support</a><a href="security.html">Security</a><a href="https://github.com/moejay/product-pass">Source</a></nav></header><main><section class="hero"><div><h1>From visual feedback to actionable issues.</h1><p>Capture elements and freehand regions across pages. Organize the evidence into editable drafts. Publish only what you approve.</p><div class="downloads"><a href="https://addons.mozilla.org/firefox/addon/product-pass/"><img src="firefox-addons-badge.svg" alt="Get Product Pass for Firefox"></a><a href="https://github.com/moejay/product-pass/releases">Manual releases</a></div></div><div class="panel"><strong>A deliberate review flow</strong><ol><li>Capture page evidence</li><li>Review local screenshots</li><li>Organize related notes</li><li>Edit and approve drafts</li><li>Publish to GitHub</li></ol></div></section><section class="features" aria-label="Features"><article><h2>Visual context</h2><p>Element selectors, freehand boundaries, page details, notes, and local screenshots stay connected.</p></article><article><h2>Human approval</h2><p>AI can organize notes, but nothing reaches GitHub until you edit, accept, and confirm it.</p></article><article><h2>Local first</h2><p>No Product Pass backend, analytics, advertising, or account database. Screenshots remain on your device.</p></article></section></main><footer>Published by DOTDEV · <a href="mailto:product-pass@moejay.dev">product-pass@moejay.dev</a></footer></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Product Pass captures visual website feedback, keeps the evidence together, and turns approved notes into GitHub issues.">
+  <title>Product Pass — visual QA to GitHub</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <a class="brand" href="index.html" aria-label="Product Pass home"><img src="icon.svg" alt=""><strong>Product Pass</strong></a>
+    <nav aria-label="Site">
+      <a href="privacy.html">Privacy</a>
+      <a href="terms.html">Terms</a>
+      <a href="support.html">Support</a>
+      <a href="security.html">Security</a>
+      <a href="https://github.com/moejay/product-pass">Source</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">VISUAL QA, WITHOUT THE HANDOFF GAP</p>
+        <h1>Capture the page.<br>Publish the fix.</h1>
+        <p class="lede">Keep annotations, screenshots, short screen recordings, page context, and review notes together—then turn only the work you approve into GitHub issues.</p>
+        <div class="downloads" aria-label="Install Product Pass">
+          <a href="https://chromewebstore.google.com/detail/product-pass/dplonfnpogllhgljkhjdmiomgdjfehgd"><img src="chrome-web-store-badge.svg" alt="Available in the Chrome Web Store"></a>
+          <a href="https://addons.mozilla.org/firefox/addon/product-pass/"><img src="firefox-addons-badge.svg" alt="Get Product Pass for Firefox"></a>
+        </div>
+        <a class="text-link" href="https://github.com/moejay/product-pass/releases">Release archives and checksums →</a>
+      </div>
+      <aside class="panel" aria-label="Product Pass workflow">
+        <span class="panel-label">ONE DELIBERATE FLOW</span>
+        <ol>
+          <li><span>01</span> Capture page evidence</li>
+          <li><span>02</span> Organize related notes</li>
+          <li><span>03</span> Review and edit drafts</li>
+          <li><span>04</span> Approve publication</li>
+          <li><span>05</span> Create GitHub issues</li>
+        </ol>
+      </aside>
+    </section>
+
+    <section class="features" aria-label="Features">
+      <article><span class="feature-number">01</span><h2>Point at the problem</h2><p>Select an element, draw a freehand boundary, or record up to one minute of no-audio video with timestamped notes.</p></article>
+      <article><span class="feature-number">02</span><h2>Keep the evidence</h2><p>URLs, page titles, selectors, geometry, notes, screenshots, and recordings remain attached to the review.</p></article>
+      <article><span class="feature-number">03</span><h2>Control every issue</h2><p>Organize notes locally or with your chosen AI provider. Edit every draft and explicitly approve it before GitHub publication.</p></article>
+      <article><span class="feature-number">04</span><h2>Stay local by default</h2><p>No Product Pass backend, advertising, analytics, or tracking. Media stays local unless you opt into a GitHub upload.</p></article>
+    </section>
+
+    <section class="showcase" aria-labelledby="showcase-title">
+      <div class="section-heading">
+        <p class="eyebrow">FROM EVIDENCE TO ACTION</p>
+        <h2 id="showcase-title">A review trail people can use.</h2>
+        <p>Capture context while it is visible. Shape the result before it becomes backlog.</p>
+      </div>
+      <div class="screenshots">
+        <figure>
+          <a href="screenshot-capture.png"><img src="screenshot-capture.png" alt="Product Pass capture view showing page annotations and their local evidence in the browser sidebar" loading="lazy"></a>
+          <figcaption><strong>Capture in context</strong><span>Notes and local evidence stay connected to the page.</span></figcaption>
+        </figure>
+        <figure>
+          <a href="screenshot-review.png"><img src="screenshot-review.png" alt="Product Pass review view showing an editable GitHub issue draft and source evidence" loading="lazy"></a>
+          <figcaption><strong>Review before publishing</strong><span>Edit the issue, inspect its sources, then approve it.</span></figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="trust">
+      <div><p class="eyebrow">BUILT FOR INTENTIONAL SHARING</p><h2>Your review data is not our business model.</h2></div>
+      <p>Product Pass has no publisher-operated application backend. Provider requests and GitHub publication happen only when you initiate them. <a href="privacy.html">Read the privacy policy →</a></p>
+    </section>
+  </main>
+
+  <footer>Published by DOTDEV · <a href="mailto:product-pass@moejay.dev">product-pass@moejay.dev</a> · <a href="https://github.com/moejay/product-pass">MIT licensed</a></footer>
+</body>
+</html>
