@@ -1,7 +1,37 @@
-import type { Annotation, IssueDraft } from "./model";
+import type { Annotation, IssueDraft, RecordingRef, ReviewSession } from "./model";
 
 export const MAX_NOTE_TEXT = 2_000;
 export const MAX_POINTS = 1_000;
+export const MAX_RECORDING_MS = 60_000;
+
+export function draftIsLocked(draft: Pick<IssueDraft, "publishState">): boolean { return ["publishing", "published", "unknown"].includes(draft.publishState); }
+export function resolvePublishRepo(draft: Pick<IssueDraft, "publishState" | "publishRepo" | "uploadedMedia" | "uploadedMediaRepo">, currentRepo: string): string {
+  if (draft.publishState === "unknown") {
+    if (!draft.publishRepo) throw new Error("This legacy unknown publication has no recorded repository. Check GitHub manually before retrying.");
+    if (draft.publishRepo !== currentRepo) throw new Error(`Switch the selected repository back to ${draft.publishRepo} before reconciling this publication.`);
+    return draft.publishRepo;
+  }
+  if (Object.keys(draft.uploadedMedia ?? {}).length && draft.uploadedMediaRepo !== currentRepo) throw new Error(`Some media was already uploaded for ${draft.uploadedMediaRepo || "another repository"}. Switch back to that repository to finish publishing.`);
+  return currentRepo;
+}
+
+export function assertSessionDeletable(session: Pick<ReviewSession, "drafts">): void {
+  if (session.drafts.some(draft => draft.publishState === "publishing")) throw new Error("Wait for the current GitHub publication to finish before deleting this session.");
+}
+export function assertSessionMutable(session: Pick<ReviewSession, "drafts">): void {
+  assertSessionDeletable(session);
+  if (session.drafts.some(draft => draft.publishState === "unknown")) throw new Error("Reconcile the unknown GitHub publication before changing source evidence.");
+  if (session.drafts.some(draft => draft.publishState !== "published" && Object.keys(draft.uploadedMedia ?? {}).length)) throw new Error("Finish publishing the draft with its already-uploaded files before changing source evidence.");
+}
+export function assertMediaUploadCanChange(draft: Pick<IssueDraft, "uploadedMedia">, upload: boolean): void {
+  if (!upload && Object.keys(draft.uploadedMedia ?? {}).length) throw new Error("Already-uploaded files must remain attached to this issue draft.");
+}
+export const MAX_RECORDING_BYTES = 100 * 1024 * 1024;
+
+export function validRecordingRef(value: unknown, now = Date.now()): value is RecordingRef {
+  if (!value || typeof value !== "object") return false; const item = value as Partial<RecordingRef>;
+  return typeof item.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.id) && item.mimeType === "video/webm" && Number.isSafeInteger(item.byteSize) && item.byteSize! >= 1 && item.byteSize! <= MAX_RECORDING_BYTES && Number.isFinite(item.durationMs) && item.durationMs! >= 1 && item.durationMs! <= MAX_RECORDING_MS + 500 && Number.isFinite(item.createdAt) && item.createdAt! >= 1 && item.createdAt! <= now + 60_000;
+}
 
 export function safeUrl(raw: string): string {
   try {
@@ -45,12 +75,14 @@ export function deterministicDrafts(notes: Annotation[], sessionId: string, now 
     sessionId,
     title: `Review findings for ${host}`,
     body: members.map((note, i) => {
-      const detail = note.text.trim() || `${note.kind === "element" ? "Element" : "Freehand"} annotation${note.contextLabel ? `: ${note.contextLabel}` : ""}`;
+      const detail = note.text.trim() || `${note.kind === "element" ? "Element" : note.kind === "freehand" ? "Freehand" : "Video"} annotation${note.contextLabel ? `: ${note.contextLabel}` : ""}`;
       return `## Finding ${i + 1}\n\n${detail}\n\nSource: ${note.safeUrl}`;
     }).join("\n\n"),
     sourceAnnotationIds: members.map(note => note.id),
     decision: "review",
     publishState: "not-published",
+    uploadMedia: false,
+    uploadedMedia: {},
     createdAt: now + index,
     updatedAt: now + index
   }));
@@ -75,7 +107,7 @@ export function parseAIContent(content: string, notes: Annotation[], sessionId: 
       seen.add(id);
       return id;
     });
-    return { id: crypto.randomUUID(), sessionId, title: raw.title.trim(), body: raw.body.trim(), sourceAnnotationIds: ids, decision: "review" as const, publishState: "not-published" as const, createdAt: now + index, updatedAt: now + index };
+    return { id: crypto.randomUUID(), sessionId, title: raw.title.trim(), body: raw.body.trim(), sourceAnnotationIds: ids, decision: "review" as const, publishState: "not-published" as const, uploadMedia: false, uploadedMedia: {}, createdAt: now + index, updatedAt: now + index };
   }).map(draft => draft);
 }
 
@@ -95,12 +127,14 @@ export function appendSourceEvidence(drafts: IssueDraft[], notes: Annotation[]):
       if (!note) throw new Error("A draft referenced missing source evidence.");
       const lines = [
         `### Note ${index + 1}: ${evidenceText(note.pageTitle) || "Untitled page"}`,
-        `- Page: <${note.safeUrl}>`,
-        `- Annotation: ${note.kind === "element" ? "selected element" : "drawn boundary"}`
+        note.safeUrl ? `- Page: <${note.safeUrl}>` : "- Page: unavailable",
+        `- Annotation: ${note.kind === "element" ? "selected element" : note.kind === "freehand" ? "drawn boundary" : "video timestamp"}`
       ];
       if (note.contextLabel) lines.push(`- Element/context: ${evidenceText(note.contextLabel)}`);
       if (note.anchor.kind === "element") lines.push(`- Selector: \`${evidenceText(note.anchor.selector)}\``);
-      if (note.screenshot) lines.push("- Screenshot: captured locally in Product Pass (not uploaded to GitHub)");
+      if (note.anchor.kind === "video") lines.push(`- Recording timestamp: ${Math.floor(note.anchor.timestampMs / 60_000)}:${String(Math.floor(note.anchor.timestampMs / 1_000) % 60).padStart(2, "0")}`);
+      if (note.screenshot) lines.push("- Screenshot: stored locally in Product Pass; uploaded to GitHub only if explicitly enabled for this draft");
+      if (note.anchor.kind === "video") lines.push("- Recording: stored locally in Product Pass; uploaded to GitHub only if explicitly enabled for this draft");
       return lines.join("\n");
     }).join("\n\n");
     return { ...draft, body: `${draft.body.trim()}\n\n## Source evidence\n\n${evidence}` };

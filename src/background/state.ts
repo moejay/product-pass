@@ -1,7 +1,7 @@
 import { ext } from "../shared/browser";
-import type { AppState, CredentialsStatus, Settings } from "../shared/model";
+import type { AppState, CredentialsStatus, ReviewSession, Settings } from "../shared/model";
 import { codexStatus } from "./codex-auth";
-import { githubDeviceStatus } from "./github-device";
+import { githubOAuthStatus } from "./github-oauth";
 
 const STATE_KEY = "productPassState";
 const CREDENTIALS_KEY = "productPassCredentials";
@@ -11,12 +11,11 @@ const defaultSettings: Settings = {
   aiEndpoint: "https://api.openai.com/v1/chat/completions",
   aiModel: "gpt-4o-mini",
   codexModel: "gpt-5.4",
-  githubAuth: "github-app",
-  githubRepo: "",
-  githubAppClientId: "Iv23li0eh1QsLt4ca7LN",
-  githubAppInstallUrl: "https://github.com/apps/product-pass-by-dotdev/installations/new"
+  githubAuth: "oauth",
+  githubOAuthScope: "public_repo",
+  githubRepo: ""
 };
-const defaults: AppState = { sessions: [], activeSessionId: null, selectedAnnotationId: null, enabledOrigins: [], settings: defaultSettings };
+const defaults: AppState = { sessions: [], activeSessionId: null, selectedAnnotationId: null, enabledOrigins: [], pendingAssetDeletes: { screenshots: [], media: [] }, settings: defaultSettings };
 let queue: Promise<unknown> = Promise.resolve();
 
 export function normalizeSettings(value: unknown): Settings {
@@ -26,14 +25,22 @@ export function normalizeSettings(value: unknown): Settings {
     ...saved,
     showAnnotations: saved.showAnnotations !== false,
     aiProvider: saved.aiProvider === "openai-compatible" ? "openai-compatible" : "codex-subscription",
-    githubAuth: saved.githubAuth === "pat" ? "pat" : "github-app",
+    githubAuth: saved.githubAuth === "pat" ? "pat" : "oauth",
+    githubOAuthScope: saved.githubOAuthScope === "repo" ? "repo" : "public_repo",
     aiEndpoint: typeof saved.aiEndpoint === "string" ? saved.aiEndpoint : defaultSettings.aiEndpoint,
     aiModel: typeof saved.aiModel === "string" ? saved.aiModel : defaultSettings.aiModel,
     codexModel: typeof saved.codexModel === "string" ? saved.codexModel : defaultSettings.codexModel,
-    githubRepo: typeof saved.githubRepo === "string" ? saved.githubRepo : "",
-    githubAppClientId: typeof saved.githubAppClientId === "string" && saved.githubAppClientId.trim() ? saved.githubAppClientId : defaultSettings.githubAppClientId,
-    githubAppInstallUrl: typeof saved.githubAppInstallUrl === "string" && saved.githubAppInstallUrl.trim() ? saved.githubAppInstallUrl : defaultSettings.githubAppInstallUrl
+    githubRepo: typeof saved.githubRepo === "string" ? saved.githubRepo : ""
   };
+}
+
+export function normalizeSession(value: ReviewSession): ReviewSession {
+  return { ...value, annotations: Array.isArray(value.annotations) ? value.annotations : [], recordings: Array.isArray(value.recordings) ? value.recordings : [], drafts: Array.isArray(value.drafts) ? value.drafts.map(draft => ({ ...draft, uploadMedia: draft.uploadMedia === true, uploadedMedia: draft.uploadedMedia && typeof draft.uploadedMedia === "object" ? draft.uploadedMedia : {}, uploadedMediaRepo: typeof draft.uploadedMediaRepo === "string" ? draft.uploadedMediaRepo : undefined, publishRepo: typeof draft.publishRepo === "string" ? draft.publishRepo : undefined })) : [] };
+}
+function stringIds(value: unknown): string[] { return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0))] : []; }
+export function normalizePendingAssetDeletes(value: unknown): AppState["pendingAssetDeletes"] {
+  const pending = value && typeof value === "object" ? value as Partial<AppState["pendingAssetDeletes"]> : {};
+  return { screenshots: stringIds(pending.screenshots), media: stringIds(pending.media) };
 }
 
 export async function getState(): Promise<AppState> {
@@ -42,9 +49,10 @@ export async function getState(): Promise<AppState> {
   return {
     ...defaults,
     ...saved,
-    sessions: Array.isArray(saved?.sessions) ? saved.sessions : [],
+    sessions: Array.isArray(saved?.sessions) ? saved.sessions.map(session => normalizeSession(session)) : [],
     selectedAnnotationId: typeof saved?.selectedAnnotationId === "string" ? saved.selectedAnnotationId : null,
     enabledOrigins: Array.isArray(saved?.enabledOrigins) ? saved.enabledOrigins : [],
+    pendingAssetDeletes: normalizePendingAssetDeletes(saved?.pendingAssetDeletes),
     settings: normalizeSettings(saved?.settings)
   };
 }
@@ -84,7 +92,7 @@ export async function credentialsStatus(settings?: Settings): Promise<Credential
     aiKey: Boolean(value.aiKey),
     githubToken: Boolean(value.githubToken),
     codexSubscription: await codexStatus(),
-    githubApp: await githubDeviceStatus(resolvedSettings.githubAppClientId)
+    githubOAuth: await githubOAuthStatus(resolvedSettings.githubOAuthScope)
   };
 }
 

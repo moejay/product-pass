@@ -7,14 +7,14 @@ A local-first Chrome and Firefox extension for capturing review annotations, org
 ## MVP features
 
 - One active review session shared across tabs and page navigation; multiple saved sessions that can be finished, reopened, or permanently deleted.
-- Element-boundary and freehand annotations with optional text and a locally stored cropped screenshot when browser capture is available.
+- Element-boundary and freehand annotations with optional text and a locally stored cropped screenshot when browser capture is available; bounded no-audio WebM screen recordings with timestamped notes.
 - Saved overlays re-applied on an exact URL after reload and SPA navigation, with a default-on visibility toggle and clickable numbered markers that open the matching sidebar note.
 - Codex subscription organization by default, with OpenAI-compatible API override and deterministic local grouping when AI is unavailable.
-- Collapsible capture and review/publish workflows with editable issue title/body, live plain-text Markdown preview, local source-screenshot gallery, source-note evidence, and accept/skip decisions.
-- Direct GitHub REST issue creation only after accepting a draft and confirming publish, defaulting to the Product Pass GitHub App with repository autocomplete and a fine-grained PAT override.
+- Collapsible capture and review/publish workflows with editable issue title/body, live plain-text Markdown preview, local image/video evidence playback, source-note evidence, and accept/skip decisions.
+- Direct GitHub REST issue creation only after accepting a draft and confirming publish, defaulting to Product Pass OAuth Device Flow with repository autocomplete and a fine-grained PAT override.
 - Shared TypeScript source with browser-specific Manifest V3 builds.
 
-Voice annotations, screenshot uploads, a backend, and generic provider frameworks are intentionally excluded. Screenshots stay local to the extension. ChatGPT Plus/Pro Codex subscription support is an **experimental sideload-only compatibility feature**; see the risk and protocol pin below.
+Voice annotations, audio recording, a backend, and generic provider frameworks are intentionally excluded. Images and videos stay local unless a draft explicitly opts into experimental GitHub attachment upload. ChatGPT Plus/Pro Codex subscription support is an **experimental sideload-only compatibility feature**; see the risk and protocol pin below.
 
 ## Build and test
 
@@ -69,22 +69,26 @@ Temporary add-ons are removed when Firefox closes. For persistent local installa
 1. Create a review session in the sidebar.
 2. On a regular HTTP(S) page, choose **Enable on this site**. This requests access only for that origin.
 3. Start an element or freehand capture, finish it on the page, and enter optional context in the page prompt. Canceling the prompt discards that capture. Product Pass attempts to capture and crop the visible selected boundary locally.
-4. Capture more notes across tabs/pages. Sessions and notes persist in `storage.local`.
+4. Capture more notes across tabs/pages, or choose **Record screen**, select a surface, and add timestamped notes while recording. Recordings stop at 60 seconds or 100 MiB. Metadata persists in `storage.local`; media blobs remain in IndexedDB.
 5. Choose **Organize notes**. With no AI key, notes are grouped locally by hostname. With AI configured, review the disclosure before sending.
 6. Edit drafts and explicitly mark those to publish as **Accepted**.
-7. Configure `owner/repository` and select either a GitHub fine-grained personal access token or GitHub App Device Flow. Publish each accepted issue only after the per-issue confirmation.
+7. Connect GitHub OAuth (public repositories by default, or explicitly request the broader private-repository scope), choose a repository, and publish each accepted issue only after the per-issue confirmation. Each draft has a default-off option to upload its source media. A fine-grained PAT remains available as an override.
 
 Recommended PAT scope: access only to the chosen repository, with **Metadata: read** and **Issues: read/write**.
 
-## GitHub App Device Flow setup
+## GitHub OAuth Device Flow setup
 
-Product Pass does not own or bundle a GitHub App client ID. A developer or deploying organization must:
+Product Pass bundles the public OAuth client ID `Ov23lifwCRsz0PsjTzhA` for **Product Pass by DOTDEV** and never uses or stores a client secret. In Setup, choose either **Public repositories only** (`public_repo`, the default) or **Public and private repositories** (`repo`, a substantially broader OAuth scope), then choose **Connect**. Open GitHub's verification URL, enter the displayed code, authorize, and select an accessible repository from autocomplete. Product Pass honors GitHub's polling interval, `slow_down`, cancellation, and code expiry across MV3 worker suspension.
 
-Product Pass defaults to the public [Product Pass By DOTDEV GitHub App](https://github.com/apps/product-pass-by-dotdev), with its non-secret client ID and installation URL bundled into the extension. Install it on the target account/organization, select the repositories it may access, enter the target `owner/repository`, then choose **Connect GitHub App**. Open the exact GitHub verification link, enter the displayed user code, and authorize. Product Pass honors GitHub's polling interval, `slow_down`, cancellation, and code expiry across MV3 worker suspension.
+A fine-grained PAT remains available in Settings for users who prefer repository-scoped credentials. OAuth and PAT tokens persist in extension `storage.local`, which is not hardware-backed. Disconnecting removes local OAuth credentials and pending state; revoke provider-side access under GitHub **Settings → Applications → Authorized OAuth Apps**.
 
-Advanced users can override the public client ID and installation URL in Settings with another GitHub App that has **Device Flow** enabled and repository **Issues: Read and write**. Contents permission is not needed. Never add a client secret, private key, or refresh broker credential to this repository or extension. User authorization does not install an App; organization approval may also be required. Product Pass checks `/user/installations` and the installation repository list before publishing.
+Upgrading from the former Product Pass GitHub App removes its obsolete local token, pending flow, and alarm. It cannot revoke provider-side access: remove the old authorization under **Authorized GitHub Apps** and uninstall it under **Installed GitHub Apps** in GitHub Settings.
 
-GitHub App access tokens persist in extension `storage.local`. If GitHub returns an expiry, Product Pass stops using the token at expiry and requires Device Flow again. A standalone extension cannot securely refresh or remotely revoke an expiring GitHub App user token because those operations require the App client secret. **Remove GitHub App token from this browser** clears local token/pending state only. For server-side revocation use GitHub **Settings → Applications → Authorized GitHub Apps**; App uninstallation is separate.
+### Experimental GitHub media uploads
+
+Media upload is default-off per draft and uses `POST https://uploads.github.com/user-attachments/assets`, the endpoint used by GitHub CLI v2.99.0. It is not a documented public REST/GraphQL contract and may change, reject browser CORS, or vary by account plan. Product Pass accepts only its JPEG screenshots (10 MiB maximum) and WebM recordings (100 MiB client maximum), then inserts GitHub's returned asset URLs into the issue.
+
+Successful asset URLs are saved on the draft and reused after later failures. Upload stops at the first failure and does not create the issue. GitHub provides no attachment delete or idempotency API: a network or malformed-response failure may leave an unreconcilable orphaned upload. Local previews work independently of upload.
 
 ## Experimental Codex subscription setup and protocol pin
 
@@ -106,14 +110,14 @@ The request is background-only, streaming SSE, and locally validates strict JSON
 ## Settings and privacy
 
 - Sessions, vector geometry, note text, draft text, enabled origins, and non-secret settings use browser `storage.local`.
-- Settings, AI keys, GitHub PATs, GitHub App access tokens, and experimental Codex access/refresh/ID tokens persist in extension `storage.local`; they are not returned to content scripts or shown after saving. Legacy `storage.session` credentials are migrated automatically.
+- Settings, AI keys, GitHub PATs, GitHub OAuth tokens, and experimental Codex access/refresh/ID tokens persist in extension `storage.local`; they are not returned to content scripts or shown after saving. Legacy `storage.session` credentials are migrated automatically.
 - Pending GitHub and Codex device flows store bounded device authorization metadata, public user code/verification URL, next poll, and expiry in `storage.local` so MV3 worker suspension does not lose polling. Metadata is deleted on completion, cancellation, or expiry. No client secret/private key is used or stored.
 - The extension has no backend or telemetry.
 - Site access is optional and requested per origin. Custom AI endpoint access is requested when settings are saved. Device flows request only the exact GitHub origins or `https://auth.openai.com/*` and `https://chatgpt.com/*` at runtime from extension contexts; tokens never enter content scripts, page DOM, issue text, AI prompts, URLs, or logs.
-- AI requests occur only after **Organize** confirmation. They contain note IDs/text, annotation type, compact element label, page title, and sanitized URL. URL credentials, query, and fragment are removed. No screenshots, full DOM, selectors, cookies, browsing history, or GitHub credential are sent.
-- Every generated issue body receives a structured **Source evidence** section with page title, sanitized URL, annotation type, element/context label, and CSS selector for selected elements. Local screenshot availability is noted.
-- Cropped screenshots are stored as JPEG blobs in extension IndexedDB and can be viewed from the sidebar. GitHub receives only the edited issue text plus an invisible Product Pass marker; screenshots are not uploaded because GitHub's issue API has no supported attachment-upload operation.
-- Use a least-privilege fine-grained PAT or narrowly installed GitHub App. Extension `storage.local` is not hardware-backed secret storage; credentials remain available until disconnected/cleared and are not protected from a compromised browser profile/device.
+- AI requests occur only after **Organize** confirmation. They contain note IDs/text (including timestamp text), annotation type, compact context label, page title, and sanitized URL. URL credentials, query, and fragment are removed. No screenshot/video blobs, full DOM, selectors, cookies, browsing history, or GitHub credential are sent.
+- Every generated issue body receives a structured **Source evidence** section with page title, sanitized URL, annotation type, element/context label, CSS selector for selected elements, and recording timestamps where applicable.
+- Cropped JPEG screenshots and bounded WebM recordings are stored in extension IndexedDB and previewed locally. Per-draft media upload is off by default. When explicitly enabled and confirmed, Product Pass uploads source media directly to GitHub and appends returned URLs to the issue body.
+- Prefer public-only OAuth or a least-privilege fine-grained PAT; private-repository OAuth uses GitHub's broader `repo` scope. Extension `storage.local` is not hardware-backed secret storage; credentials remain available until disconnected/cleared and are not protected from a compromised browser profile/device.
 - A custom AI endpoint sees the selected note data. Verify that provider's privacy and retention terms before configuring it.
 
 ## Architecture
@@ -135,12 +139,12 @@ The background stores the complete small MVP state as one serialized `storage.lo
 - Only one globally active session and one capture at a time. No sync/collaboration or incognito support.
 - Exact URL identity includes query and fragment for local overlay matching, while displayed/transmitted URLs omit both. Dynamic routes can therefore create separate local page identities.
 - Element selectors can become orphaned after DOM changes. Freehand vectors use document coordinates and can drift after responsive reflow or layout changes.
-- Screenshot capture covers only the currently visible viewport and may be unavailable on restricted pages, inactive tabs, or when browser capture permission fails. Screenshots remain local; publishing them requires a future storage backend or an explicit repository-contents integration.
-- `storage.local` quota varies; very large numbers of vector notes may eventually fail to save.
+- Screenshot capture covers only the currently visible viewport and may be unavailable on restricted pages, inactive tabs, or when browser capture permission fails. Screen recording always shows the browser surface chooser, records no audio, and is canceled if the sidebar closes.
+- IndexedDB/storage quota varies. Recordings are bounded to 60 seconds and 100 MiB, but repeated recordings can still exhaust local quota.
 - Manual note reassignment, issue merge/split, labels, assignees, and bulk publication are not included. Codex streaming has a 90-second request bound but no separate in-progress cancel button.
 - Experimental Codex compatibility is pinned, not dynamically versioned. A future Codex protocol/client/backend change requires source review and a new explicit pin before release.
-- GitHub installation/repository discovery is bounded to the first 100 installations and first 100 repositories per installation; larger installations require narrowing access or a future paginated picker.
-- Backend-free GitHub App sign-out is local deletion, not server revocation. Expiring App user tokens require reauthorization because secure refresh needs a backend holding the client secret.
+- GitHub repository discovery is bounded to the first 100 repositories; larger accounts require manual `owner/repository` entry or future pagination.
+- GitHub OAuth sign-out deletes the local token but does not revoke it provider-side; revoke access in GitHub Settings when needed.
 - Markdown preview is intentionally basic and does not implement GitHub-flavored rendering.
 - GitHub has no issue-create idempotency key. Marker reconciliation checks the latest 100 issues and reduces, but cannot eliminate, duplicate risk.
 - A release still requires clean-profile browser checks plus live AI-provider and sandbox GitHub publication checks.

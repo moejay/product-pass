@@ -19,9 +19,9 @@ Capture visual website feedback, review local evidence, and publish approved Git
 The manifest declares these required categories:
 - **Authentication information** — user-configured API keys, GitHub credentials, and optional Codex OAuth tokens.
 - **Website activity** — page URL/title on sites where the user explicitly enables Product Pass and creates annotations.
-- **Website content** — selected element context, review notes, source evidence, and captured local screenshots.
+- **Website content** — selected element context, review/timestamp notes, source evidence, captured local screenshots, and user-selected no-audio screen recordings.
 
-Product Pass has no publisher-operated application backend, analytics, advertising, sale of data, or unrelated data use. Screenshots stay local. AI/GitHub transfers are user-initiated and described in the privacy policy.
+Product Pass has no publisher-operated application backend, analytics, advertising, sale of data, or unrelated data use. Media stays local unless a draft explicitly enables experimental GitHub upload and the user confirms publication. AI/GitHub transfers are user-initiated and described in the privacy policy.
 
 ## Source code
 Upload `product-pass-0.5.0-source.zip` when AMO requests source for the generated JavaScript bundles.
@@ -47,10 +47,11 @@ Core functionality requires no account or network request.
 2. On a regular HTTPS page, create a session.
 3. Click “Enable on this site” and approve that site's optional permission.
 4. Select “Element rectangle,” click an element, and enter optional text.
-5. The annotation and cropped screenshot appear locally in the sidebar.
+5. The annotation and cropped screenshot appear locally in the sidebar. Record a short screen clip, add a timestamp note, stop, and verify local playback.
 6. Click “Organize notes.” Without AI credentials, deterministic local grouping is used.
 7. Review/edit the generated issue draft. GitHub publishing remains unavailable unless the reviewer supplies their own repository and credential.
-8. “Finish” preserves and closes the session. “Delete session” removes its local notes, screenshots, and drafts.
+8. Media remains local unless the default-off experimental GitHub upload option is enabled and publication is confirmed.
+9. “Finish” preserves and closes the session. “Delete session” removes its local notes, screenshots, recordings, and drafts.
 
 No remotely hosted code is loaded or executed. AI and GitHub responses are treated only as data. The optional experimental Codex connection is user-initiated, uses device authorization without cookies or a client secret, and is documented in the privacy policy and README.
 ```

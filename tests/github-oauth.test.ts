@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nextPendingPoll, parseDeviceCodeResponse, parseTokenPollResponse, pollDeviceCode, requestDeviceCode } from "../src/background/github-device";
-import { listGithubAppRepositories, listPatRepositories, selectGithubCredential, verifyGithubAppRepoAccess } from "../src/background/github";
+import { GITHUB_OAUTH_CLIENT_ID, nextPendingPoll, parseDeviceCodeResponse, parseTokenPollResponse, pollDeviceCode, requestDeviceCode } from "../src/background/github-oauth";
+import { listPatRepositories, selectGithubCredential } from "../src/background/github";
 import { normalizeSettings } from "../src/background/state";
 
 const deviceResponse = {
@@ -12,16 +12,16 @@ const deviceResponse = {
   interval: 5
 };
 
-test("new settings use the public Product Pass GitHub App while explicit PAT settings survive", () => {
+test("new settings use Product Pass OAuth while explicit overrides survive", () => {
   const settings = normalizeSettings({ aiEndpoint: "https://example.test/chat", aiModel: "model", githubRepo: "owner/repo" });
   assert.equal(settings.showAnnotations, true);
   assert.equal(normalizeSettings({ showAnnotations: false }).showAnnotations, false);
   assert.equal(settings.aiProvider, "codex-subscription");
   assert.equal(normalizeSettings({ aiProvider: "openai-compatible" }).aiProvider, "openai-compatible");
-  assert.equal(settings.githubAuth, "github-app");
-  assert.equal(settings.githubAppClientId, "Iv23li0eh1QsLt4ca7LN");
-  assert.equal(settings.githubAppInstallUrl, "https://github.com/apps/product-pass-by-dotdev/installations/new");
-  assert.equal(normalizeSettings({ githubAuth: "pat" }).githubAuth, "pat");
+  assert.equal(settings.githubAuth, "oauth");
+  assert.equal(settings.githubOAuthScope, "public_repo");
+  assert.equal(normalizeSettings({ githubAuth: "pat", githubOAuthScope: "repo" }).githubAuth, "pat");
+  assert.equal(normalizeSettings({ githubOAuthScope: "repo" }).githubOAuthScope, "repo");
 });
 
 test("device-code parser validates URL and derives bounded poll timing", () => {
@@ -40,10 +40,10 @@ test("Device Flow requests use official form endpoints without a client secret",
     requests.push({ url: String(input), init });
     return new Response(JSON.stringify(responses.shift()), { status: 200, headers: { "Content-Type": "application/json" } });
   };
-  const pending = await requestDeviceCode("Iv1.public-client", fetcher, 1_000);
+  const pending = await requestDeviceCode("public_repo", fetcher, 1_000);
   await pollDeviceCode(pending, fetcher, 6_000);
   assert.equal(requests[0].url, "https://github.com/login/device/code");
-  assert.equal(requests[0].init?.body, "client_id=Iv1.public-client");
+  assert.equal(requests[0].init?.body, `client_id=${GITHUB_OAUTH_CLIENT_ID}&scope=public_repo`);
   assert.match(String(requests[1].init?.body), /grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code/);
   assert.doesNotMatch(String(requests[0].init?.body) + String(requests[1].init?.body), /client_secret/);
 });
@@ -57,34 +57,20 @@ test("token polling distinguishes pending, slow_down, terminal errors, and expir
   assert.deepEqual(parseTokenPollResponse({ error: "authorization_pending" }), { kind: "pending" });
   assert.deepEqual(parseTokenPollResponse({ error: "slow_down" }), { kind: "slow-down" });
   assert.equal(parseTokenPollResponse({ error: "access_denied" }).kind, "terminal");
-  assert.deepEqual(parseTokenPollResponse({ access_token: "ghu_token", token_type: "bearer", expires_in: 60 }, 2_000), {
-    kind: "success", token: { accessToken: "ghu_token", expiresAt: 62_000 }
+  assert.deepEqual(parseTokenPollResponse({ access_token: "gho_token", token_type: "bearer", scope: "public_repo", expires_in: 60 }, 2_000), {
+    kind: "success", token: { accessToken: "gho_token", expiresAt: 62_000 }, grantedScopes: ["public_repo"]
   });
   assert.throws(() => parseTokenPollResponse({ access_token: "token", token_type: "mac" }), /unsupported token type/);
 });
 
-test("repository autocomplete lists GitHub App and PAT repositories defensively", async () => {
-  const appResponses = [{ installations: [{ id: 7 }] }, { repositories: [{ full_name: "Owner/Zeta" }, { full_name: "owner/Alpha" }, { full_name: "invalid" }] }];
-  const appFetcher: typeof fetch = async () => new Response(JSON.stringify(appResponses.shift()), { status: 200 });
-  assert.deepEqual(await listGithubAppRepositories("app-token", appFetcher), ["owner/Alpha", "Owner/Zeta"]);
-  const patFetcher: typeof fetch = async () => new Response(JSON.stringify([{ full_name: "owner/repo" }, { full_name: null }]), { status: 200 });
-  assert.deepEqual(await listPatRepositories("pat-token", patFetcher), ["owner/repo"]);
+test("repository autocomplete lists OAuth or PAT repositories defensively", async () => {
+  const fetcher: typeof fetch = async () => new Response(JSON.stringify([{ full_name: "owner/repo" }, { full_name: null }]), { status: 200 });
+  assert.deepEqual(await listPatRepositories("oauth-or-pat-token", fetcher), ["owner/repo"]);
 });
 
-test("GitHub App repository access is checked through installations", async () => {
-  const urls: string[] = [];
-  const fetcher: typeof fetch = async input => {
-    urls.push(String(input));
-    const body = urls.length === 1 ? { installations: [{ id: 42 }] } : { repositories: [{ full_name: "Owner/Repo" }] };
-    return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
-  };
-  await verifyGithubAppRepoAccess("owner/repo", "app-token", fetcher);
-  assert.deepEqual(urls, ["https://api.github.com/user/installations?per_page=100", "https://api.github.com/user/installations/42/repositories?per_page=100"]);
-});
-
-test("publishing credential selection keeps PAT and GitHub App modes separate", () => {
+test("publishing credential selection keeps PAT and OAuth modes separate", () => {
   assert.equal(selectGithubCredential("pat", "pat-token", "", undefined), "pat-token");
-  assert.equal(selectGithubCredential("github-app", "pat-token", "app-token", 2_000, 1_000), "app-token");
-  assert.throws(() => selectGithubCredential("github-app", "pat-token", "app-token", 999, 1_000), /Connect the selected GitHub App/);
-  assert.throws(() => selectGithubCredential("pat", "", "app-token"), /fine-grained token/);
+  assert.equal(selectGithubCredential("oauth", "pat-token", "oauth-token", 2_000, 1_000), "oauth-token");
+  assert.throws(() => selectGithubCredential("oauth", "pat-token", "oauth-token", 999, 1_000), /Connect GitHub/);
+  assert.throws(() => selectGithubCredential("pat", "", "oauth-token"), /fine-grained token/);
 });

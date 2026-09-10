@@ -5,13 +5,14 @@
 2. On a normal HTTPS page, create a session.
 3. Click **Enable on this site** and approve that site’s optional permission.
 4. Choose **Element rectangle**, select an element, and enter optional text.
-5. Confirm the annotation and cropped local screenshot appear in the sidebar.
+5. Confirm the annotation and cropped local screenshot appear in the sidebar. Choose **Record screen**, select a surface, add a timestamp note, stop, and verify local playback/download/deletion.
 6. Click **Organize notes**. With no AI credential configured, Product Pass uses deterministic local grouping.
 7. Edit and accept the draft. GitHub publication remains unavailable until the reviewer supplies their own repository and authentication.
-8. Use **Finish** to close while preserving the session, or **Delete session** to remove its local notes, screenshots, and drafts.
+8. Leave media upload off to verify local-only publishing, or explicitly enable the experimental GitHub upload checkbox, re-accept, and confirm its warning before a sandbox publish.
+9. Use **Finish** to close while preserving the session, or **Delete session** to remove its local notes, screenshots, recordings, and drafts.
 
 ## Network behavior
-No network request is required for capture, local screenshots, session management, or deterministic grouping. AI and GitHub requests happen only after explicit configuration and confirmation.
+No network request is required for capture, local screenshots/recordings, session management, or deterministic grouping. AI and GitHub requests happen only after explicit configuration and confirmation. `uploads.github.com` is requested only after per-draft media opt-in and final publish confirmation; the attachment API is experimental and undocumented.
 
 ## Experimental Codex connection
 The optional ChatGPT/Codex flow is user-initiated and uses the public Codex device authorization flow without cookies, a client secret, or a Product Pass backend. Product Pass identifies this integration as experimental and not endorsed by OpenAI. Reference statement about third-party ChatGPT account use: https://x.com/thsottiaux/status/2058071172361998482

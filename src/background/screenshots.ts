@@ -1,28 +1,9 @@
 import { ext } from "../shared/browser";
-import type { Anchor, CaptureViewport, ScreenshotRef } from "../shared/model";
+import type { CaptureViewport, ElementAnchor, FreehandAnchor, ScreenshotRef } from "../shared/model";
+import { deleteScreenshotBlob, getScreenshotBlob, putScreenshotBlob } from "../shared/media-store";
 
-const DB_NAME = "product-pass-assets";
-const STORE = "screenshots";
 const MAX_EDGE = 1_200;
-
-function database(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("Could not open screenshot storage."));
-  });
-}
-async function transaction<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const db = await database();
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(STORE, mode); const request = action(tx.objectStore(STORE));
-      request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error ?? new Error("Screenshot storage failed."));
-    });
-  } finally { db.close(); }
-}
-function cropRect(anchor: Anchor, viewport: CaptureViewport): { x: number; y: number; width: number; height: number } | null {
+function cropRect(anchor: ElementAnchor | FreehandAnchor, viewport: CaptureViewport): { x: number; y: number; width: number; height: number } | null {
   const source = anchor.kind === "element" ? anchor.rect : anchor.bounds;
   const padding = 16;
   const x = Math.max(0, source.x - viewport.scrollX - padding); const y = Math.max(0, source.y - viewport.scrollY - padding);
@@ -31,7 +12,7 @@ function cropRect(anchor: Anchor, viewport: CaptureViewport): { x: number; y: nu
   return right > x && bottom > y ? { x, y, width: right - x, height: bottom - y } : null;
 }
 
-export async function captureScreenshot(windowId: number, anchor: Anchor, viewport: CaptureViewport, id: string): Promise<ScreenshotRef | undefined> {
+export async function captureScreenshot(windowId: number, anchor: ElementAnchor | FreehandAnchor, viewport: CaptureViewport, id: string): Promise<ScreenshotRef | undefined> {
   if (![viewport.scrollX, viewport.scrollY, viewport.width, viewport.height].every(Number.isFinite) || viewport.width < 1 || viewport.height < 1) return undefined;
   const crop = cropRect(anchor, viewport); if (!crop) return undefined;
   const dataUrl = await ext.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 78 });
@@ -54,16 +35,10 @@ export async function captureScreenshot(windowId: number, anchor: Anchor, viewpo
       context.closePath(); context.stroke();
     }
     const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.78 });
-    await transaction("readwrite", store => store.put(blob, id));
+    await putScreenshotBlob(id, blob);
     return { id, mimeType: "image/jpeg", width, height, createdAt: Date.now() };
   } finally { bitmap.close(); }
 }
 
-export async function deleteScreenshot(id: string): Promise<void> { await transaction("readwrite", store => store.delete(id)); }
-
-export async function screenshotDataUrl(id: string): Promise<string | null> {
-  const blob = await transaction<Blob | undefined>("readonly", store => store.get(id)); if (!blob) return null;
-  const bytes = new Uint8Array(await blob.arrayBuffer()); let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 32_768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
-  return `data:${blob.type || "image/jpeg"};base64,${btoa(binary)}`;
-}
+export async function deleteScreenshot(id: string): Promise<void> { await deleteScreenshotBlob(id); }
+export async function screenshotBlob(id: string): Promise<Blob | null> { return (await getScreenshotBlob(id)) ?? null; }

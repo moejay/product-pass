@@ -4,13 +4,13 @@ Use this as the source of truth when completing store forms. Recheck the live fo
 
 ## Data handled
 - Personally identifiable information: opaque provider identity/authentication tokens can encode provider account identifiers.
-- Authentication information: user-supplied API keys, GitHub PATs, GitHub App tokens, and Codex OAuth tokens.
+- Authentication information: user-supplied API keys, GitHub PATs, GitHub OAuth tokens, and Codex OAuth tokens.
 - Website activity: active page URL and title on sites the user enables.
-- Website content: selected element label/selector, annotation note, geometry, cropped screenshot, and issue source evidence.
+- Website content: selected element label/selector, annotation and timestamp notes, geometry, cropped screenshots, no-audio screen recordings, and issue source evidence.
 - User-generated content: review notes and issue drafts.
 
 ## Local-only data
-Sessions, drafts, settings, credentials, geometry, and cropped screenshots are stored locally. Screenshots are never transmitted by Product Pass.
+Sessions, drafts, settings, credentials, geometry, cropped screenshots, and bounded WebM recordings are stored locally. Media is never sent to AI. A user can explicitly enable experimental GitHub media upload per draft; only then, after final confirmation, are source JPEG/WebM bytes sent directly to GitHub.
 
 ## User-directed network transfers
 - Configured AI provider: note text, page title, sanitized URL, annotation type, and element label, only after an organization confirmation.
