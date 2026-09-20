@@ -67,6 +67,7 @@ export type GithubOAuthScope = "public_repo" | "repo";
 
 export interface Settings {
   showAnnotations: boolean;
+  connectionsSkipped: boolean;
   aiProvider: AIProvider;
   aiEndpoint: string;
   aiModel: string;

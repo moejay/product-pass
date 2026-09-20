@@ -15,7 +15,9 @@ const deviceResponse = {
 test("new settings use Product Pass OAuth while explicit overrides survive", () => {
   const settings = normalizeSettings({ aiEndpoint: "https://example.test/chat", aiModel: "model", githubRepo: "owner/repo" });
   assert.equal(settings.showAnnotations, true);
-  assert.equal(normalizeSettings({ showAnnotations: false }).showAnnotations, false);
+  assert.equal(settings.connectionsSkipped, false);
+  assert.equal(normalizeSettings({ showAnnotations: false, connectionsSkipped: true }).showAnnotations, false);
+  assert.equal(normalizeSettings({ connectionsSkipped: true }).connectionsSkipped, true);
   assert.equal(settings.aiProvider, "codex-subscription");
   assert.equal(normalizeSettings({ aiProvider: "openai-compatible" }).aiProvider, "openai-compatible");
   assert.equal(settings.githubAuth, "oauth");

@@ -9,10 +9,13 @@ Product Pass lets users capture visual website-review evidence, organize related
 Stores review sessions, annotations, issue drafts, enabled sites, settings, credentials, and bounded authentication state in extension storage. Cropped screenshots and bounded no-audio WebM recordings are stored locally in extension IndexedDB. This persistence is required for reviews to survive navigation and browser restarts.
 
 ### tabs and activeTab
-Reads the active tab’s URL and title so annotations stay attached to the correct page across navigation. After the user invokes Product Pass, `activeTab` permits capture of the visible selected area for the local screenshot attached to an annotation. Product Pass does not inspect tabs for analytics, advertising, or unrelated browsing tracking.
+Reads the active tab’s URL and title so annotations stay attached to the correct page across navigation. `activeTab` can permit visible-tab capture immediately after toolbar invocation; Product Pass separately requests optional HTTP/HTTPS host access before the first reliable image-backed annotation because browsers revoke transient access after navigation. Product Pass does not inspect tabs for analytics, advertising, or unrelated browsing tracking.
 
 ### scripting
 Injects the packaged annotation overlay into the active HTTP(S) page only after the user grants that site access. The script enables element selection, freehand boundaries, and restoration of saved overlays. Product Pass does not download or execute remote scripts.
+
+### Optional HTTP/HTTPS host access
+Per-site access enables annotation overlays only on sites the user chooses. Before the first screenshot-backed annotation, Product Pass explicitly requests optional HTTP/HTTPS access because Chrome requires broad host or transient `activeTab` access for reliable visible-tab capture across navigation. Screenshots are cropped and stored locally; this permission does not cause automatic injection on every site.
 
 ### sidePanel
 Displays the Product Pass review workspace in Chrome’s side panel so users can capture notes while viewing the page, inspect local image/video evidence, edit drafts, approve issues, and initiate GitHub publication.

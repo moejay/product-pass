@@ -10,7 +10,7 @@ Use this as the source of truth when completing store forms. Recheck the live fo
 - User-generated content: review notes and issue drafts.
 
 ## Local-only data
-Sessions, drafts, settings, credentials, geometry, cropped screenshots, and bounded WebM recordings are stored locally. Media is never sent to AI. A user can explicitly enable experimental GitHub media upload per draft; only then, after final confirmation, are source JPEG/WebM bytes sent directly to GitHub.
+Sessions, drafts, settings, credentials, geometry, cropped screenshots, and bounded WebM recordings are stored locally. Reliable visible-tab screenshots require separately disclosed optional HTTP/HTTPS host access because transient `activeTab` access ends after navigation; annotation scripts still run only on sites the user explicitly enables. Media is never sent to AI. A user can explicitly enable experimental GitHub media upload per draft; only then, after final confirmation, are source JPEG/WebM bytes sent directly to GitHub.
 
 ## User-directed network transfers
 - Configured AI provider: note text, page title, sanitized URL, annotation type, and element label, only after an organization confirmation.

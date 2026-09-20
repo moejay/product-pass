@@ -4,16 +4,16 @@
 1. Open Product Pass from the toolbar.
 2. On a normal HTTPS page, create a session.
 3. Click **Enable on this site** and approve that site’s optional permission.
-4. Choose **Element rectangle**, select an element, and enter optional text.
+4. Choose **Element rectangle** and approve the separate optional HTTP/HTTPS screenshot permission. This broader permission is required by browser visible-tab capture; annotation injection remains limited to explicitly enabled sites. Select an element and enter optional text.
 5. Confirm the annotation and cropped local screenshot appear in the sidebar. Choose **Record screen**, select a surface, add a timestamp note, stop, and verify local playback/download/deletion.
-6. Use **Export raw capture** and **Import raw capture…** to verify a local `.ppraw` archive restores notes/media as a new review without any connection. Archives exclude drafts, settings, credentials, and publication data.
+6. Use **Export raw capture** in the active review and **Import raw capture…** under collapsed **Settings** to verify a local `.ppraw` archive restores notes/media as a new review without any connection. Archives exclude drafts, settings, credentials, and publication data.
 7. Click **Organize notes**. With no AI credential configured, Product Pass uses deterministic local grouping.
 8. Edit and accept the draft. GitHub publication remains unavailable until the reviewer supplies their own repository and authentication.
 9. Leave media upload off to verify local-only publishing, or explicitly enable the experimental GitHub upload checkbox, re-accept, and confirm its warning before a sandbox publish.
 10. Use **Finish** to close while preserving the session, or **Delete session** to remove its local notes, screenshots, recordings, and drafts.
 
 ## Network behavior
-No network request is required for capture, local screenshots/recordings, session management, or deterministic grouping. AI and GitHub requests happen only after explicit configuration and confirmation. `uploads.github.com` is requested only after per-draft media opt-in and final publish confirmation; the attachment API is experimental and undocumented.
+No network request is required for capture, local screenshots/recordings, session management, or deterministic grouping. Reliable visible-tab screenshots require the separately disclosed optional HTTP/HTTPS host permission; it does not enable automatic annotation injection. AI and GitHub requests happen only after explicit configuration and confirmation. `uploads.github.com` is requested only after per-draft media opt-in and final publish confirmation; the attachment API is experimental and undocumented.
 
 ## Experimental Codex connection
 The optional ChatGPT/Codex flow is user-initiated and uses the public Codex device authorization flow without cookies, a client secret, or a Product Pass backend. Product Pass identifies this integration as experimental and not endorsed by OpenAI. Reference statement about third-party ChatGPT account use: https://x.com/thsottiaux/status/2058071172361998482

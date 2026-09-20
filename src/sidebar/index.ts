@@ -5,9 +5,11 @@ import { getMediaBlob, getScreenshotBlob, putImportedAssets, putMediaBlob } from
 import { blobCrc32, buildRawManifest, encodeRawPrefix, MAX_RAW_ANNOTATIONS, MAX_RAW_ARCHIVE_BYTES, MAX_RAW_ASSETS, MAX_RAW_HEADER_BYTES, parseRawCaptureHeader, remapRawCapture, validRawAssetBlob, type RawAsset } from "../shared/raw-capture";
 
 const app = document.querySelector<HTMLElement>("#app")!;
+const SCREENSHOT_ORIGINS = ["http://*/*", "https://*/*"];
 const pageStatus = document.querySelector<HTMLElement>("#page-status")!;
 const notice = document.querySelector<HTMLElement>("#notice")!;
 let data: Bootstrap | null = null;
+let screenshotAccess = false;
 let selectedDraft = 0;
 let busy = false;
 let settingsOpen = false;
@@ -161,7 +163,7 @@ async function run(action: () => void | Promise<void>): Promise<void> {
 async function load(showLoading = true): Promise<void> {
   if (showLoading) app.textContent = "Loading…";
   try {
-    data = await rpc<Bootstrap>({ type: "BOOTSTRAP" });
+    [data, screenshotAccess] = await Promise.all([rpc<Bootstrap>({ type: "BOOTSTRAP" }), ext.permissions.contains({ origins: SCREENSHOT_ORIGINS })]);
     const screenshotIds = new Set(data.state.sessions.flatMap(session => session.annotations.flatMap(note => note.screenshot ? [note.id] : [])));
     for (const id of screenshotCache.keys()) if (!screenshotIds.has(id)) releaseScreenshot(id);
     const recordingIds = new Set(data.state.sessions.flatMap(session => session.recordings.map(item => item.id)));
@@ -180,7 +182,6 @@ function render(): void {
   app.replaceChildren();
   pageStatus.textContent = data.tab.supported ? `${data.tab.title || "Untitled page"} — ${safeUrl(data.tab.url)}` : "Annotations unavailable on this page";
   renderSessionChooser(data.state);
-  renderRawCaptureActions(activeSession());
   renderConnectionChecklist(data.state);
   const session = activeSession();
   if (!session) { if (!data.state.sessions.length) renderCreate(); renderSettings(data.state); return; }
@@ -213,12 +214,9 @@ function renderSessionChooser(state: AppState): void {
   wrap.append(label, select, actions); app.append(wrap);
 }
 
-function renderRawCaptureActions(session: ReviewSession | undefined): void {
-  const section = element("section", undefined, "raw-capture-actions"); section.append(element("h2", "Raw capture backup"), element("p", "Capture, recording, local previews, and raw import/export work without AI or GitHub. Archives include raw notes, screenshots, recordings, and timestamps; they exclude drafts, settings, credentials, and publishing data.", "meta"));
-  const actions = element("div", undefined, "row");
-  if (session) actions.append(button("Export raw capture", () => exportRawCapture(session), "secondary"));
-  const file = element("input"); file.type = "file"; file.accept = ".ppraw,application/x-product-pass-raw-capture"; file.hidden = true; file.addEventListener("change", () => void run(async () => { const selected = file.files?.[0]; file.value = ""; if (selected) await importRawCapture(selected); }));
-  actions.append(button("Import raw capture…", async () => file.click(), "secondary")); section.append(actions); app.append(section);
+function rawCaptureImportControl(): HTMLElement {
+  const wrap = element("div"); const file = element("input"); file.type = "file"; file.accept = ".ppraw,application/x-product-pass-raw-capture"; file.hidden = true; file.addEventListener("change", () => void run(async () => { const selected = file.files?.[0]; file.value = ""; if (selected) await importRawCapture(selected); }));
+  wrap.append(file, button("Import raw capture…", async () => file.click(), "secondary")); return wrap;
 }
 async function exportRawCapture(session: ReviewSession): Promise<void> {
   if (recording) throw new Error("Stop or cancel the active recording before exporting.");
@@ -255,12 +253,12 @@ async function createSession(): Promise<void> {
 
 async function connectCodex(): Promise<void> {
   if (!await ext.permissions.request({ origins: ["https://auth.openai.com/*", "https://chatgpt.com/*"] })) throw new Error("OpenAI access permission was not granted.");
-  await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, aiProvider: "codex-subscription" } });
+  await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, aiProvider: "codex-subscription", connectionsSkipped: false } });
   await rpc({ type: "START_CODEX_DEVICE_FLOW" }); say("Enter the displayed code on the OpenAI verification page.");
 }
 async function connectGithub(scope = data!.state.settings.githubOAuthScope): Promise<void> {
   if (!await ext.permissions.request({ origins: ["https://github.com/*", "https://api.github.com/*"] })) throw new Error("GitHub access permission was not granted.");
-  await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, githubAuth: "oauth", githubOAuthScope: scope } });
+  await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, githubAuth: "oauth", githubOAuthScope: scope, connectionsSkipped: false } });
   await rpc({ type: "START_GITHUB_OAUTH_FLOW" }); say("Enter the displayed code on GitHub.");
 }
 function deviceFlow(code: string, url: string, label: string): HTMLElement {
@@ -274,9 +272,11 @@ function renderConnectionChecklist(state: AppState): void {
   const aiReady = usingCodex ? aiStatus.connected : data!.credentials.aiKey;
   const githubConnected = state.settings.githubAuth === "oauth" ? githubStatus.connected : data!.credentials.githubToken;
   const githubReady = Boolean(state.settings.githubRepo) && githubConnected;
-  const complete = Number(aiReady) + Number(githubReady);
-  const details = element("details", undefined, "setup-checklist"); details.open = setupOpen ?? complete < 2; details.addEventListener("toggle", () => { setupOpen = details.open; });
-  const summary = element("summary"); summary.append(element("span", "Setup", "section-title"), element("span", `${complete}/2 ready`, "count")); details.append(summary);
+  const complete = Number(aiReady) + Number(githubReady); const setupDone = state.settings.connectionsSkipped || complete === 2;
+  const details = element("details", undefined, "setup-checklist"); details.open = setupOpen ?? !setupDone; details.addEventListener("toggle", () => { setupOpen = details.open; });
+  const summary = element("summary"); summary.append(element("span", "Optional connections", "section-title"), element("span", state.settings.connectionsSkipped ? "Local mode" : `${complete}/2 ready`, "count")); details.append(summary);
+  if (state.settings.connectionsSkipped) details.append(element("p", "Local mode selected. Capture, export, and deterministic organization work without AI or GitHub.", "success"), button("Resume connection setup", async () => { await rpc({ type: "SAVE_SETTINGS", settings: { ...state.settings, connectionsSkipped: false } }); setupOpen = true; }, "secondary"));
+  else if (!setupDone) details.append(element("p", "AI and GitHub are optional. Skip both to use local capture, raw export, and deterministic organization now.", "meta"), button("Skip AI & GitHub — use local mode", async () => { await rpc({ type: "SAVE_SETTINGS", settings: { ...state.settings, connectionsSkipped: true } }); setupOpen = false; say("Optional connections skipped. Local capture and export are ready."); }, "secondary"));
   const scopeBox = element("div", undefined, "oauth-scope"); const accessLabel = element("label", "GitHub OAuth repository access (chosen before connecting)"); accessLabel.htmlFor = "github-oauth-scope"; const access = element("select"); access.id = "github-oauth-scope";
   const publicOnly = element("option", "Public repositories only (public_repo)"); publicOnly.value = "public_repo"; const privateAccess = element("option", "All public and private repositories (repo — broad access)"); privateAccess.value = "repo"; access.append(publicOnly, privateAccess); access.value = state.settings.githubOAuthScope;
   access.addEventListener("change", () => void run(async () => { if (githubStatus.connected && !confirm("Changing repository access disconnects GitHub. Continue?")) { access.value = state.settings.githubOAuthScope; return; } await rpc({ type: "SAVE_SETTINGS", settings: { ...state.settings, githubAuth: "oauth", githubOAuthScope: access.value as "public_repo" | "repo" } }); say("GitHub access level saved. Connect GitHub to authorize it."); })); scopeBox.append(accessLabel, access, element("p", "Public-only is the default. Private repositories require GitHub's broader repo scope and reconnecting.", "meta"));
@@ -352,7 +352,7 @@ function renderCapture(session: ReviewSession): void {
     const noteHead = element("div", undefined, "note-heading"); noteHead.append(element("span", note.kind === "element" ? "Element" : note.kind === "freehand" ? "Freehand" : "Video", "badge"), element("span", note.anchor.kind === "video" ? timestamp(note.anchor.timestampMs) : new Date(note.createdAt).toLocaleDateString(), "meta")); item.append(noteHead, element("h3", note.pageTitle || "Untitled page"), element("p", note.safeUrl, "meta"));
     if (note.screenshot) item.append(screenshotFigure(note));
     else if (note.screenshotStatus === "pending") item.append(element("p", "Capturing screenshot…", "meta"));
-    else if (note.screenshotStatus === "failed" && note.kind !== "video") item.append(element("p", "Screenshot capture failed. Keep this tab active and recapture the annotation to include an image.", "warning"));
+    else if (note.screenshotStatus === "failed" && note.kind !== "video") item.append(element("p", "Screenshot was not captured. Keep the tab active and enable optional screenshot access in Settings before recapturing.", "warning"));
     item.append(element("p", note.text || "No note text", note.text ? "note-text" : "meta note-text"));
     const actions = element("div", undefined, "actions"); actions.append(button("Edit", async () => {
       if (session.drafts.length && !confirm("This will discard generated issue drafts. Published GitHub issues are unaffected.")) return;
@@ -364,8 +364,8 @@ function renderCapture(session: ReviewSession): void {
       await rpc({ type: "DELETE_ANNOTATION", annotationId: note.id }); releaseScreenshot(note.id); say(note.kind === "video" ? "Timestamp note deleted; the recording remains." : "Note deleted.");
     }, "danger")); item.append(actions); section.append(item);
   }
-  const organizeButton = button(`Organize ${session.annotations.length} note${session.annotations.length === 1 ? "" : "s"}`, organize);
-  organizeButton.disabled = busy || session.annotations.length === 0 || session.annotations.some(note => note.screenshotStatus === "pending"); section.append(organizeButton); app.append(section);
+  const reviewActions = element("div", undefined, "row"); const organizeButton = button(`Organize ${session.annotations.length} note${session.annotations.length === 1 ? "" : "s"}`, organize);
+  organizeButton.disabled = busy || session.annotations.length === 0 || session.annotations.some(note => note.screenshotStatus === "pending"); reviewActions.append(organizeButton, button("Export raw capture", () => exportRawCapture(session), "secondary")); section.append(reviewActions); app.append(section);
 }
 
 async function enableSite(): Promise<void> {
@@ -373,15 +373,22 @@ async function enableSite(): Promise<void> {
   const granted = await ext.permissions.request({ origins: [pattern] }); if (!granted) throw new Error("Site access was not granted.");
   await rpc({ type: "ENABLE_ORIGIN", origin: data!.tab.url, tabId: data!.tab.id }); say("Annotations enabled on this site.");
 }
+async function requestScreenshotAccess(): Promise<boolean> {
+  if (screenshotAccess) return true;
+  if (!confirm("Allow local screenshot capture?\n\nBrowsers require optional access to HTTP and HTTPS pages to capture the visible tab. Product Pass still adds annotations only on sites you explicitly enable. Screenshots remain local unless you opt into GitHub media upload.")) return false;
+  try { screenshotAccess = await ext.permissions.request({ origins: SCREENSHOT_ORIGINS }); } catch { screenshotAccess = false; }
+  return screenshotAccess;
+}
 async function beginCapture(mode: CaptureKind): Promise<void> {
   if (data!.tab.id === undefined) throw new Error("No active tab.");
-  await rpc({ type: "BEGIN_CAPTURE", mode, tabId: data!.tab.id }); say(`${mode === "element" ? "Element selection" : "Freehand capture"} started on the page. Press Escape to cancel.`);
+  const screenshotsEnabled = await requestScreenshotAccess();
+  await rpc({ type: "BEGIN_CAPTURE", mode, tabId: data!.tab.id }); say(`${mode === "element" ? "Element selection" : "Freehand capture"} started on the page. Press Escape to cancel.${screenshotsEnabled ? "" : " The note will be saved without a screenshot."}`);
 }
 async function organize(): Promise<void> {
   const session = activeSession()!;
   const usingCodex = data!.state.settings.aiProvider === "codex-subscription";
   const codexConnected = data!.credentials.codexSubscription.connected;
-  const provider = usingCodex && codexConnected ? `experimental ChatGPT Codex (${data!.state.settings.codexModel})` : data!.credentials.aiKey && !usingCodex ? new URL(data!.state.settings.aiEndpoint).hostname : "the local deterministic fallback";
+  const provider = !data!.state.settings.connectionsSkipped && usingCodex && codexConnected ? `experimental ChatGPT Codex (${data!.state.settings.codexModel})` : !data!.state.settings.connectionsSkipped && data!.credentials.aiKey && !usingCodex ? new URL(data!.state.settings.aiEndpoint).hostname : "the local deterministic fallback";
   const domains = [...new Set(session.annotations.map(note => { try { return new URL(note.safeUrl).hostname; } catch { return "unknown"; } }))].join(", ");
   if (!confirm(`Organize ${session.annotations.length} notes using ${provider}?\n\nShared with a configured AI: note text, page title, sanitized URL, annotation type, and element label. No screenshots, page DOM, query strings, fragments, or credentials.\n\nDomains: ${domains}`)) return;
   const result = await rpc<{ fallback: boolean }>({ type: "GENERATE_DRAFTS" });
@@ -467,10 +474,11 @@ async function publishDraft(draft: IssueDraft): Promise<void> {
 function renderSettings(state: AppState): void {
   const status = data!.credentials.githubOAuth;
   const codexStatus = data!.credentials.codexSubscription;
-  const forceOpen = Boolean(status.message) || Boolean(codexStatus.message);
-  const details = element("details", undefined, "settings-panel"); details.open = settingsOpen || forceOpen;
+  const details = element("details", undefined, "settings-panel"); details.open = settingsOpen;
   details.addEventListener("toggle", () => { settingsOpen = details.open; });
   const summary = element("summary", "Settings"); details.append(summary);
+  details.append(element("h3", "Local capture data", "settings-heading"), element("p", "Import a .ppraw backup as a new review. Archives may contain sensitive notes, screenshots, and recordings.", "meta"), rawCaptureImportControl(), button("Enable website screenshot capture", async () => { if (!await requestScreenshotAccess()) throw new Error("Screenshot access was not granted."); say("Local screenshot capture enabled."); }, "secondary"));
+  details.append(element("p", "Browsers require optional access to HTTP and HTTPS pages for visible-tab screenshots. Annotation injection remains limited to sites you enable.", "meta"));
 
   const aiProviderLabel = element("label", "Organization provider"); aiProviderLabel.htmlFor = "ai-provider";
   const aiProvider = element("select"); aiProvider.id = "ai-provider";
@@ -521,6 +529,7 @@ function renderSettings(state: AppState): void {
 
   const settingsValue = () => ({
     showAnnotations: state.settings.showAnnotations,
+    connectionsSkipped: state.settings.connectionsSkipped,
     aiProvider: aiProvider.value as "openai-compatible" | "codex-subscription",
     aiEndpoint: endpoint.value,
     aiModel: model.value,
@@ -529,7 +538,7 @@ function renderSettings(state: AppState): void {
     githubOAuthScope: scope.value as "public_repo" | "repo",
     githubRepo: state.settings.githubRepo
   });
-  const save = async (): Promise<void> => {
+  const save = async (resumeConnections = false): Promise<void> => {
     const origins: string[] = [];
     const aiOrigin = originPattern(endpoint.value);
     if (aiProvider.value === "openai-compatible" && (key.value || data!.credentials.aiKey) && aiOrigin) origins.push(aiOrigin);
@@ -537,15 +546,15 @@ function renderSettings(state: AppState): void {
     if (githubAuth.value === "oauth") origins.push("https://github.com/*", "https://api.github.com/*");
     else if (token.value || data!.credentials.githubToken) origins.push("https://api.github.com/*");
     if (origins.length && !await ext.permissions.request({ origins: [...new Set(origins)] })) throw new Error("Network access permission was not granted.");
-    await rpc({ type: "SAVE_SETTINGS", settings: settingsValue(), ...(key.value ? { aiKey: key.value } : {}), ...(token.value ? { githubToken: token.value } : {}) });
+    await rpc({ type: "SAVE_SETTINGS", settings: { ...settingsValue(), connectionsSkipped: resumeConnections ? false : state.settings.connectionsSkipped }, ...(key.value ? { aiKey: key.value } : {}), ...(token.value ? { githubToken: token.value } : {}) });
   };
   details.append(element("p", `Product Pass ${ext.runtime.getManifest().version}`, "meta"), element("p", "Credentials persist in extension storage.local, isolated from page scripts. Extension storage is not a hardware-backed vault.", "meta"));
   details.append(element("p", "Upgraded from the former GitHub App? Product Pass removes its local credentials, but you must separately revoke its authorization and installation in GitHub Settings → Applications.", "meta"));
   const settingsActions = element("div", undefined, "settings-actions");
   settingsActions.append(button("Save settings", async () => { await save(); say("Settings saved."); }));
-  settingsActions.append(button("Connect Codex", async () => { aiProvider.value = "codex-subscription"; await save(); await rpc({ type: "START_CODEX_DEVICE_FLOW" }); say("Enter the displayed code on the OpenAI Codex verification page."); }, "secondary"));
+  settingsActions.append(button("Connect Codex", async () => { aiProvider.value = "codex-subscription"; await save(true); await rpc({ type: "START_CODEX_DEVICE_FLOW" }); say("Enter the displayed code on the OpenAI Codex verification page."); }, "secondary"));
   if (codexStatus.connected || codexStatus.state === "awaiting-user") settingsActions.append(button("Disconnect Codex", async () => { await rpc({ type: "DISCONNECT_CODEX" }); say("Local Codex credentials and pending sign-in removed."); }, "danger"));
-  settingsActions.append(button("Connect GitHub", async () => { githubAuth.value = "oauth"; await save(); await rpc({ type: "START_GITHUB_OAUTH_FLOW" }); say("Waiting for GitHub authorization. Enter the displayed code; this updates automatically after approval."); }, "secondary"));
+  settingsActions.append(button("Connect GitHub", async () => { githubAuth.value = "oauth"; await save(true); await rpc({ type: "START_GITHUB_OAUTH_FLOW" }); say("Waiting for GitHub authorization. Enter the displayed code; this updates automatically after approval."); }, "secondary"));
   if (status.connected || status.state === "awaiting-user") settingsActions.append(button("Disconnect GitHub OAuth", async () => { await rpc({ type: "DISCONNECT_GITHUB_OAUTH" }); say("Local GitHub OAuth credentials and pending sign-in removed. Revoke access in GitHub Settings if needed."); }, "danger"));
   settingsActions.append(button("Clear API key and PAT", async () => { await rpc({ type: "SAVE_SETTINGS", settings: settingsValue(), aiKey: "", githubToken: "" }); say("API key and PAT cleared."); }, "danger"));
   details.append(settingsActions);
@@ -555,5 +564,7 @@ function renderSettings(state: AppState): void {
 ext.tabs.onActivated.addListener(() => void load(false));
 ext.tabs.onUpdated.addListener((id, change) => { if (id === data?.tab.id && (change.status === "complete" || change.url)) void load(false); });
 ext.storage.onChanged.addListener((_changes, area) => { if (area === "local" || area === "session") void load(false); });
+ext.permissions.onAdded.addListener(permissions => { if (SCREENSHOT_ORIGINS.every(origin => permissions.origins?.includes(origin))) screenshotAccess = true; });
+ext.permissions.onRemoved.addListener(permissions => { if (permissions.origins?.some(origin => SCREENSHOT_ORIGINS.includes(origin))) screenshotAccess = false; });
 window.addEventListener("beforeunload", () => { for (const url of screenshotCache.values()) URL.revokeObjectURL(url); for (const url of recordingUrls.values()) URL.revokeObjectURL(url); if (recording) { recording.discard = true; stopTracks(recording.stream); if (recording.recorder.state !== "inactive") recording.recorder.stop(); } });
 void load();

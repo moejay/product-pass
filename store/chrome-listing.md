@@ -43,11 +43,11 @@ Product Pass captures website-review evidence and turns approved review notes in
 
 ## Permission justifications
 - `storage`: Persist sessions, drafts, settings, credentials, and authentication lifecycle state locally.
-- `tabs` and `activeTab`: Read the active tab URL/title, coordinate annotations across navigation, and capture its visible area after you invoke Product Pass.
+- `tabs` and `activeTab`: Read the active tab URL/title, coordinate annotations across navigation, and allow transient visible-tab capture after toolbar invocation.
 - `scripting`: Inject the annotation tool only after the user grants access to a site.
 - `sidePanel`: Host the Product Pass review workspace.
 - `alarms`: Resume and expire OAuth/Device Flow polling safely when the MV3 worker is suspended.
-- Optional `http://*/*` and `https://*/*`: Let users enable annotations one site at a time. Product Pass does not request blanket site access at installation.
+- Optional `http://*/*` and `https://*/*`: Let users enable annotations one site at a time. Before the first screenshot-backed annotation, Product Pass separately requests optional HTTP/HTTPS access because browsers require broad permission for reliable visible-tab capture after navigation. It is not requested at installation, and annotation injection remains limited to explicitly enabled sites.
 
 ## Privacy declarations
 See `store/privacy-disclosures.md`. All declarations must match the live privacy policy.

@@ -300,10 +300,10 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
       if (!session.annotations.length) throw new Error("Capture at least one note first.");
       if (session.annotations.some(note => note.screenshotStatus === "pending")) throw new Error("Wait for screenshot capture to finish before organizing notes.");
       const revision = annotationRevision(session.annotations);
-      const useCodex = shouldUseRemoteCodex(state.settings.aiProvider, (await codexStatus()).connected);
+      const useCodex = shouldUseRemoteCodex(state.settings.aiProvider, (await codexStatus()).connected, state.settings.connectionsSkipped);
       const result = useCodex
         ? await organizeWithCodex(session.annotations, session.id, state.settings)
-        : await organize(session.annotations, session.id, state.settings, state.settings.aiProvider === "openai-compatible" ? (await getCredentials()).aiKey : "");
+        : await organize(session.annotations, session.id, state.settings, !state.settings.connectionsSkipped && state.settings.aiProvider === "openai-compatible" ? (await getCredentials()).aiKey : "");
       await updateState(current => {
         const target = current.sessions.find(item => item.id === session.id);
         if (!target || annotationRevision(target.annotations) !== revision) throw new Error("Notes changed while organizing. Generate the drafts again.");

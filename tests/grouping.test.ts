@@ -58,6 +58,7 @@ test("partial GitHub uploads cannot be detached or erased with source mutations"
 test("unconnected default Codex uses the deterministic local fallback", () => {
   assert.equal(shouldUseRemoteCodex("codex-subscription", false), false);
   assert.equal(shouldUseRemoteCodex("codex-subscription", true), true);
+  assert.equal(shouldUseRemoteCodex("codex-subscription", true, true), false);
   assert.equal(shouldUseRemoteCodex("openai-compatible", true), false);
 });
 

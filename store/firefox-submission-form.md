@@ -46,7 +46,7 @@ Core functionality requires no account or network request.
 1. Open Product Pass from the toolbar/sidebar.
 2. On a regular HTTPS page, create a session.
 3. Click “Enable on this site” and approve that site's optional permission.
-4. Select “Element rectangle,” click an element, and enter optional text.
+4. Select “Element rectangle” and approve the separately explained optional HTTP/HTTPS screenshot permission. Browsers require broad visible-tab access for reliable capture after navigation; annotation injection remains limited to explicitly enabled sites. Click an element and enter optional text.
 5. The annotation and cropped screenshot appear locally in the sidebar. Record a short screen clip, add a timestamp note, stop, and verify local playback.
 6. Click “Organize notes.” Without AI credentials, deterministic local grouping is used.
 7. Review/edit the generated issue draft. GitHub publishing remains unavailable unless the reviewer supplies their own repository and credential.

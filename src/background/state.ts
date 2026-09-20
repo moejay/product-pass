@@ -7,6 +7,7 @@ const STATE_KEY = "productPassState";
 const CREDENTIALS_KEY = "productPassCredentials";
 const defaultSettings: Settings = {
   showAnnotations: true,
+  connectionsSkipped: false,
   aiProvider: "codex-subscription",
   aiEndpoint: "https://api.openai.com/v1/chat/completions",
   aiModel: "gpt-4o-mini",
@@ -24,6 +25,7 @@ export function normalizeSettings(value: unknown): Settings {
     ...defaultSettings,
     ...saved,
     showAnnotations: saved.showAnnotations !== false,
+    connectionsSkipped: saved.connectionsSkipped === true,
     aiProvider: saved.aiProvider === "openai-compatible" ? "openai-compatible" : "codex-subscription",
     githubAuth: saved.githubAuth === "pat" ? "pat" : "oauth",
     githubOAuthScope: saved.githubOAuthScope === "repo" ? "repo" : "public_repo",
