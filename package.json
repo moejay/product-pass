@@ -1,6 +1,6 @@
 {
   "name": "product-pass",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Capture visual website feedback and publish approved issue drafts to GitHub.",
   "license": "MIT",
@@ -14,6 +14,9 @@
     "check": "npm run typecheck && npm test && npm run build",
     "lint:firefox": "web-ext lint --source-dir dist/firefox --warnings-as-errors",
     "package": "node scripts/package.mjs"
+  },
+  "overrides": {
+    "image-size": "2.0.4"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",

@@ -33,3 +33,13 @@ export function deleteScreenshotBlob(id: string): Promise<undefined> { return tr
 export function putMediaBlob(id: string, blob: Blob): Promise<IDBValidKey> { return transaction(MEDIA, "readwrite", store => store.put(blob, id)); }
 export function getMediaBlob(id: string): Promise<Blob | undefined> { return transaction(MEDIA, "readonly", store => store.get(id)); }
 export function deleteMediaBlob(id: string): Promise<undefined> { return transaction(MEDIA, "readwrite", store => store.delete(id)); }
+export async function putImportedAssets(screenshots: Array<{ id: string; blob: Blob }>, media: Array<{ id: string; blob: Blob }>): Promise<void> {
+  const db = await database();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([SCREENSHOTS, MEDIA], "readwrite");
+      screenshots.forEach(asset => tx.objectStore(SCREENSHOTS).put(asset.blob, asset.id)); media.forEach(asset => tx.objectStore(MEDIA).put(asset.blob, asset.id));
+      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error ?? new Error("Media import failed.")); tx.onabort = () => reject(tx.error ?? new Error("Media import failed."));
+    });
+  } finally { db.close(); }
+}

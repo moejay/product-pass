@@ -77,6 +77,8 @@ export interface Settings {
 }
 
 export interface PendingAssetDeletes { screenshots: string[]; media: string[] }
+export interface PendingAssetImport { reservationId: string; screenshotIds: string[]; recordingIds: string[]; createdAt: number }
+export interface ImportedAssetDescriptor { id: string; kind: "screenshot" | "recording"; mimeType: "image/jpeg" | "video/webm"; byteSize: number; crc32: string }
 
 export interface AppState {
   sessions: ReviewSession[];
@@ -84,6 +86,7 @@ export interface AppState {
   selectedAnnotationId: string | null;
   enabledOrigins: string[];
   pendingAssetDeletes: PendingAssetDeletes;
+  pendingAssetImports: PendingAssetImport[];
   settings: Settings;
 }
 
@@ -130,6 +133,10 @@ export type RequestMessage =
   | { type: "SET_ANNOTATIONS_VISIBLE"; visible: boolean }
   | { type: "SAVE_RECORDING"; sessionId: string; recording: RecordingRef; notes: Array<{ text: string; timestampMs: number; url: string; pageTitle: string }> }
   | { type: "DELETE_RECORDING"; recordingId: string }
+  | { type: "RESERVE_IMPORTED_ASSETS"; reservationId: string; screenshotIds: string[]; recordingIds: string[] }
+  | { type: "PROCESS_PENDING_ASSET_DELETES" }
+  | { type: "CANCEL_IMPORTED_ASSETS"; reservationId: string }
+  | { type: "IMPORT_RAW_CAPTURE"; reservationId: string; session: ReviewSession; assets: ImportedAssetDescriptor[] }
   | { type: "PAGE_CHANGED"; url: string }
   | { type: "SAVE_ANNOTATION"; annotation: Omit<Annotation, "id" | "sessionId" | "createdAt" | "updatedAt" | "safeUrl" | "screenshot" | "screenshotStatus"> & { viewport: CaptureViewport } }
   | { type: "UPDATE_ANNOTATION"; annotationId: string; text: string }

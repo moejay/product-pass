@@ -1,13 +1,14 @@
 import { ext } from "../shared/browser";
-import type { Annotation, Bootstrap, ElementAnchor, FreehandAnchor, RequestMessage, ReviewSession } from "../shared/model";
-import { annotationRevision, assertMediaUploadCanChange, assertSessionDeletable, assertSessionMutable, draftIsLocked, MAX_NOTE_TEXT, MAX_POINTS, originPattern, resolvePublishRepo, safeUrl, validRecordingRef, validRepo } from "../shared/pure";
+import type { Annotation, Bootstrap, ElementAnchor, FreehandAnchor, ImportedAssetDescriptor, RequestMessage, ReviewSession } from "../shared/model";
+import { annotationRevision, assertMediaUploadCanChange, assertSessionDeletable, assertSessionMutable, draftIsLocked, MAX_NOTE_TEXT, MAX_POINTS, MAX_RECORDING_MS, originPattern, resolvePublishRepo, safeUrl, shouldUseRemoteCodex, validRecordingRef, validRepo } from "../shared/pure";
 import { organize } from "./ai";
-import { cancelCodexDeviceFlow, CODEX_DEVICE_ALARM, disconnectCodex, pollCodexDeviceFlow, resumeCodexDeviceFlow, startCodexDeviceFlow } from "./codex-auth";
+import { cancelCodexDeviceFlow, CODEX_DEVICE_ALARM, codexStatus, disconnectCodex, pollCodexDeviceFlow, resumeCodexDeviceFlow, startCodexDeviceFlow } from "./codex-auth";
 import { organizeWithCodex } from "./codex";
 import { appendUploadedMedia, listPatRepositories, publish, repositoryId, uploadUserAttachment, validateUploadBlob, type UploadedMedia } from "./github";
 import { cancelGithubOAuthFlow, cleanupLegacyGithubApp, disconnectGithubOAuth, getGithubOAuthToken, GITHUB_OAUTH_ALARM, pollGithubOAuthFlow, resumeGithubOAuthFlow, startGithubOAuthFlow } from "./github-oauth";
 import { captureScreenshot, deleteScreenshot, screenshotBlob } from "./screenshots";
 import { deleteMediaBlob, getMediaBlob } from "../shared/media-store";
+import { projectImportedRawSession, validRawAssetBlob, type RawAsset } from "../shared/raw-capture";
 import { credentialsStatus, getCredentials, getState, saveSettings, updateState } from "./state";
 
 const uuid = () => crypto.randomUUID();
@@ -32,24 +33,20 @@ function validRect(rect: { x: number; y: number; width: number; height: number }
   return [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) && rect.width >= 0 && rect.height >= 0 && rect.width <= 100_000 && rect.height <= 100_000;
 }
 function safeMessage(error: unknown): string { return error instanceof Error ? error.message.slice(0, 300) : "The operation failed."; }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const IMPORT_GRACE_MS = 10 * 60_000;
 function appendDeleteIds(target: string[], ids: string[]): void { for (const id of ids) if (!target.includes(id)) target.push(id); }
-async function queueAssetDeletes(screenshots: string[] = [], media: string[] = []): Promise<void> {
-  await updateState(state => { appendDeleteIds(state.pendingAssetDeletes.screenshots, screenshots); appendDeleteIds(state.pendingAssetDeletes.media, media); });
-  await processPendingAssetDeletes();
-}
+function reservedIds(state: Awaited<ReturnType<typeof getState>>): Set<string> { return new Set(state.pendingAssetImports.flatMap(item => [...item.screenshotIds, ...item.recordingIds])); }
+async function queueAssetDeletes(screenshots: string[] = [], media: string[] = []): Promise<void> { await updateState(state => { appendDeleteIds(state.pendingAssetDeletes.screenshots, screenshots); appendDeleteIds(state.pendingAssetDeletes.media, media); }); await processPendingAssetDeletes(); }
+async function expirePendingAssetImports(): Promise<void> { await updateState(state => { const cutoff = now() - IMPORT_GRACE_MS; const active = []; for (const pending of state.pendingAssetImports) { if (pending.createdAt > cutoff) active.push(pending); else { appendDeleteIds(state.pendingAssetDeletes.screenshots, pending.screenshotIds); appendDeleteIds(state.pendingAssetDeletes.media, pending.recordingIds); } } state.pendingAssetImports = active; }); }
 async function processPendingAssetDeletes(): Promise<void> {
-  const pending = (await getState()).pendingAssetDeletes;
+  const pending = await updateState(state => { const reserved = reservedIds(state); return { screenshots: state.pendingAssetDeletes.screenshots.filter(id => !reserved.has(id)), media: state.pendingAssetDeletes.media.filter(id => !reserved.has(id)) }; });
   const removedScreenshots: string[] = []; const removedMedia: string[] = [];
-  await Promise.all([
-    ...pending.screenshots.map(async id => { try { await deleteScreenshot(id); removedScreenshots.push(id); } catch { /* retained for retry */ } }),
-    ...pending.media.map(async id => { try { await deleteMediaBlob(id); removedMedia.push(id); } catch { /* retained for retry */ } })
-  ]);
+  await Promise.all([...pending.screenshots.map(async id => { try { await deleteScreenshot(id); removedScreenshots.push(id); } catch { /* retained for retry */ } }), ...pending.media.map(async id => { try { await deleteMediaBlob(id); removedMedia.push(id); } catch { /* retained for retry */ } })]);
   if (!removedScreenshots.length && !removedMedia.length) return;
-  await updateState(state => {
-    state.pendingAssetDeletes.screenshots = state.pendingAssetDeletes.screenshots.filter(id => !removedScreenshots.includes(id));
-    state.pendingAssetDeletes.media = state.pendingAssetDeletes.media.filter(id => !removedMedia.includes(id));
-  });
+  await updateState(state => { const reserved = reservedIds(state); state.pendingAssetDeletes.screenshots = state.pendingAssetDeletes.screenshots.filter(id => !removedScreenshots.includes(id) || reserved.has(id)); state.pendingAssetDeletes.media = state.pendingAssetDeletes.media.filter(id => !removedMedia.includes(id) || reserved.has(id)); });
 }
+function importAssets(value: ImportedAssetDescriptor[]): RawAsset[] { if (!Array.isArray(value) || value.length > 2_000) throw new Error("Invalid raw capture assets."); const ids = new Set<string>(); return value.map(asset => { if (!asset || !UUID.test(asset.id) || ids.has(asset.id) || (asset.kind !== "screenshot" && asset.kind !== "recording") || (asset.kind === "screenshot" && asset.mimeType !== "image/jpeg") || (asset.kind === "recording" && asset.mimeType !== "video/webm") || !Number.isSafeInteger(asset.byteSize) || asset.byteSize < 1 || asset.byteSize > (asset.kind === "screenshot" ? 10 * 1024 * 1024 : 100 * 1024 * 1024) || typeof asset.crc32 !== "string" || !/^[0-9a-f]{8}$/.test(asset.crc32)) throw new Error("Invalid raw capture asset."); ids.add(asset.id); return { sourceId: asset.id, kind: asset.kind, mimeType: asset.mimeType, byteSize: asset.byteSize, crc32: asset.crc32 }; }); }
 
 async function activeTab(): Promise<Bootstrap["tab"]> {
   const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
@@ -202,6 +199,27 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
         throw error;
       }
     }
+    case "PROCESS_PENDING_ASSET_DELETES": await processPendingAssetDeletes(); return undefined;
+    case "CANCEL_IMPORTED_ASSETS": {
+      if (!UUID.test(message.reservationId)) throw new Error("Invalid import reservation.");
+      await updateState(state => { const reservation = state.pendingAssetImports.find(item => item.reservationId === message.reservationId); if (!reservation) return; appendDeleteIds(state.pendingAssetDeletes.screenshots, reservation.screenshotIds); appendDeleteIds(state.pendingAssetDeletes.media, reservation.recordingIds); state.pendingAssetImports = state.pendingAssetImports.filter(item => item.reservationId !== message.reservationId); });
+      await processPendingAssetDeletes(); return undefined;
+    }
+    case "RESERVE_IMPORTED_ASSETS": {
+      if (!UUID.test(message.reservationId) || !Array.isArray(message.screenshotIds) || !Array.isArray(message.recordingIds) || message.screenshotIds.length + message.recordingIds.length > 2_000 || !message.screenshotIds.concat(message.recordingIds).every(value => typeof value === "string" && UUID.test(value))) throw new Error("Invalid import reservation.");
+      await updateState(state => { const ids = [...message.screenshotIds, ...message.recordingIds]; const used = new Set([...state.sessions.flatMap(session => [...session.annotations.flatMap(note => note.screenshot ? [note.screenshot.id] : []), ...session.recordings.map(recording => recording.id)]), ...state.pendingAssetDeletes.screenshots, ...state.pendingAssetDeletes.media, ...state.pendingAssetImports.flatMap(item => [...item.screenshotIds, ...item.recordingIds])]); if (new Set(ids).size !== ids.length || ids.some(id => used.has(id)) || state.pendingAssetImports.some(item => item.reservationId === message.reservationId)) throw new Error("Import assets are already reserved."); state.pendingAssetImports.push({ reservationId: message.reservationId, screenshotIds: [...message.screenshotIds], recordingIds: [...message.recordingIds], createdAt: now() }); });
+      return undefined;
+    }
+    case "IMPORT_RAW_CAPTURE": {
+      if (!UUID.test(message.reservationId) || !message.session) throw new Error("Invalid raw capture import."); const assets = importAssets(message.assets);
+      await updateState(async state => {
+        const reservation = state.pendingAssetImports.find(item => item.reservationId === message.reservationId); if (!reservation) throw new Error("Raw capture import reservation expired or was not found."); const expected = new Set([...reservation.screenshotIds, ...reservation.recordingIds]); if (assets.length !== expected.size || assets.some(asset => !expected.has(asset.sourceId)) || assets.filter(asset => asset.kind === "screenshot").some(asset => !reservation.screenshotIds.includes(asset.sourceId)) || assets.filter(asset => asset.kind === "recording").some(asset => !reservation.recordingIds.includes(asset.sourceId))) throw new Error("Raw capture assets do not match their reservation.");
+        for (const asset of assets) { const blob = asset.kind === "screenshot" ? await screenshotBlob(asset.sourceId) : await getMediaBlob(asset.sourceId); if (!blob || !await validRawAssetBlob(asset, blob)) throw new Error(`Missing or corrupted raw ${asset.kind}.`); }
+        const session = projectImportedRawSession(message.session, assets); if (state.sessions.some(item => item.id === session.id)) throw new Error("Imported review already exists.");
+        state.sessions.unshift(session); state.activeSessionId = session.id; state.selectedAnnotationId = null; state.pendingAssetImports = state.pendingAssetImports.filter(item => item.reservationId !== reservation.reservationId);
+      });
+      await refreshContentScripts(); return undefined;
+    }
     case "DELETE_RECORDING": {
       if (typeof message.recordingId !== "string") throw new Error("Invalid recording.");
       await updateState(state => {
@@ -282,9 +300,10 @@ async function handle(message: RequestMessage, sender: chrome.runtime.MessageSen
       if (!session.annotations.length) throw new Error("Capture at least one note first.");
       if (session.annotations.some(note => note.screenshotStatus === "pending")) throw new Error("Wait for screenshot capture to finish before organizing notes.");
       const revision = annotationRevision(session.annotations);
-      const result = state.settings.aiProvider === "codex-subscription"
+      const useCodex = shouldUseRemoteCodex(state.settings.aiProvider, (await codexStatus()).connected);
+      const result = useCodex
         ? await organizeWithCodex(session.annotations, session.id, state.settings)
-        : await organize(session.annotations, session.id, state.settings, (await getCredentials()).aiKey);
+        : await organize(session.annotations, session.id, state.settings, state.settings.aiProvider === "openai-compatible" ? (await getCredentials()).aiKey : "");
       await updateState(current => {
         const target = current.sessions.find(item => item.id === session.id);
         if (!target || annotationRevision(target.annotations) !== revision) throw new Error("Notes changed while organizing. Generate the drafts again.");
@@ -459,8 +478,8 @@ if (ext.sidePanel?.setPanelBehavior) {
     else void fallback();
   });
 }
-ext.runtime.onStartup.addListener(() => { void processPendingAssetDeletes().catch(() => undefined); });
-void processPendingAssetDeletes().catch(() => undefined);
+ext.runtime.onStartup.addListener(() => { void expirePendingAssetImports().then(processPendingAssetDeletes).catch(() => undefined); });
+void expirePendingAssetImports().then(processPendingAssetDeletes).catch(() => undefined);
 void cleanupLegacyGithubApp().then(() => resumeGithubOAuthFlow());
 void resumeCodexDeviceFlow();
 void updateState(state => {

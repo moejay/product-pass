@@ -25,12 +25,13 @@ Features:
 - Element and freehand annotations
 - Multi-page persistent sessions
 - Local image/video gallery with timestamp playback, download, and deletion
+- Offline raw-capture backup/import of notes, screenshots, recordings, and timestamps; no account required
 - Default-off experimental GitHub media attachment upload
 - Editable issue drafts
 - GitHub OAuth Device Flow or fine-grained PAT
 - No Product Pass backend, advertising, or analytics
 
-Media remains local and is never uploaded to AI providers. A draft can explicitly opt into direct GitHub media upload before final confirmation; this experimental feature uses GitHub's undocumented attachment endpoint.
+Media remains local and is never uploaded to AI providers. Raw `.ppraw` archives exclude drafts, settings, credentials, and publication data, but can contain sensitive evidence. A draft can explicitly opt into direct GitHub media upload before final confirmation; this experimental feature requires repository write access and uses GitHub's undocumented attachment endpoint.
 
 ## URLs
 - Homepage: https://moejay.github.io/product-pass/

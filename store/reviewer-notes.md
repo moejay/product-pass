@@ -6,10 +6,11 @@
 3. Click **Enable on this site** and approve that site’s optional permission.
 4. Choose **Element rectangle**, select an element, and enter optional text.
 5. Confirm the annotation and cropped local screenshot appear in the sidebar. Choose **Record screen**, select a surface, add a timestamp note, stop, and verify local playback/download/deletion.
-6. Click **Organize notes**. With no AI credential configured, Product Pass uses deterministic local grouping.
-7. Edit and accept the draft. GitHub publication remains unavailable until the reviewer supplies their own repository and authentication.
-8. Leave media upload off to verify local-only publishing, or explicitly enable the experimental GitHub upload checkbox, re-accept, and confirm its warning before a sandbox publish.
-9. Use **Finish** to close while preserving the session, or **Delete session** to remove its local notes, screenshots, recordings, and drafts.
+6. Use **Export raw capture** and **Import raw capture…** to verify a local `.ppraw` archive restores notes/media as a new review without any connection. Archives exclude drafts, settings, credentials, and publication data.
+7. Click **Organize notes**. With no AI credential configured, Product Pass uses deterministic local grouping.
+8. Edit and accept the draft. GitHub publication remains unavailable until the reviewer supplies their own repository and authentication.
+9. Leave media upload off to verify local-only publishing, or explicitly enable the experimental GitHub upload checkbox, re-accept, and confirm its warning before a sandbox publish.
+10. Use **Finish** to close while preserving the session, or **Delete session** to remove its local notes, screenshots, recordings, and drafts.
 
 ## Network behavior
 No network request is required for capture, local screenshots/recordings, session management, or deterministic grouping. AI and GitHub requests happen only after explicit configuration and confirmation. `uploads.github.com` is requested only after per-draft media opt-in and final publish confirmation; the attachment API is experimental and undocumented.

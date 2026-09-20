@@ -1,5 +1,5 @@
 import { ext } from "../shared/browser";
-import type { AppState, CredentialsStatus, ReviewSession, Settings } from "../shared/model";
+import type { AppState, CredentialsStatus, PendingAssetImport, ReviewSession, Settings } from "../shared/model";
 import { codexStatus } from "./codex-auth";
 import { githubOAuthStatus } from "./github-oauth";
 
@@ -15,7 +15,7 @@ const defaultSettings: Settings = {
   githubOAuthScope: "public_repo",
   githubRepo: ""
 };
-const defaults: AppState = { sessions: [], activeSessionId: null, selectedAnnotationId: null, enabledOrigins: [], pendingAssetDeletes: { screenshots: [], media: [] }, settings: defaultSettings };
+const defaults: AppState = { sessions: [], activeSessionId: null, selectedAnnotationId: null, enabledOrigins: [], pendingAssetDeletes: { screenshots: [], media: [] }, pendingAssetImports: [], settings: defaultSettings };
 let queue: Promise<unknown> = Promise.resolve();
 
 export function normalizeSettings(value: unknown): Settings {
@@ -42,6 +42,18 @@ export function normalizePendingAssetDeletes(value: unknown): AppState["pendingA
   const pending = value && typeof value === "object" ? value as Partial<AppState["pendingAssetDeletes"]> : {};
   return { screenshots: stringIds(pending.screenshots), media: stringIds(pending.media) };
 }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export function normalizePendingAssetImports(value: unknown): PendingAssetImport[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>(); const assets = new Set<string>(); const output: PendingAssetImport[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue; const pending = item as Partial<PendingAssetImport>;
+    const screenshots = stringIds(pending.screenshotIds).filter(id => UUID.test(id)); const media = stringIds(pending.recordingIds).filter(id => UUID.test(id));
+    if (!UUID.test(pending.reservationId ?? "") || !Number.isSafeInteger(pending.createdAt) || pending.createdAt! < 1 || screenshots.length + media.length > 2_000 || ids.has(pending.reservationId!) || [...screenshots, ...media].some(id => assets.has(id))) continue;
+    ids.add(pending.reservationId!); [...screenshots, ...media].forEach(id => assets.add(id)); output.push({ reservationId: pending.reservationId!, screenshotIds: screenshots, recordingIds: media, createdAt: pending.createdAt! });
+  }
+  return output;
+}
 
 export async function getState(): Promise<AppState> {
   const data = await ext.storage.local.get(STATE_KEY);
@@ -53,6 +65,7 @@ export async function getState(): Promise<AppState> {
     selectedAnnotationId: typeof saved?.selectedAnnotationId === "string" ? saved.selectedAnnotationId : null,
     enabledOrigins: Array.isArray(saved?.enabledOrigins) ? saved.enabledOrigins : [],
     pendingAssetDeletes: normalizePendingAssetDeletes(saved?.pendingAssetDeletes),
+    pendingAssetImports: normalizePendingAssetImports(saved?.pendingAssetImports),
     settings: normalizeSettings(saved?.settings)
   };
 }

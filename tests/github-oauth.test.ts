@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { GITHUB_OAUTH_CLIENT_ID, nextPendingPoll, parseDeviceCodeResponse, parseTokenPollResponse, pollDeviceCode, requestDeviceCode } from "../src/background/github-oauth";
 import { listPatRepositories, selectGithubCredential } from "../src/background/github";
-import { normalizeSettings } from "../src/background/state";
+import { normalizePendingAssetImports, normalizeSettings } from "../src/background/state";
 
 const deviceResponse = {
   device_code: "device-secret",
@@ -22,6 +22,12 @@ test("new settings use Product Pass OAuth while explicit overrides survive", () 
   assert.equal(settings.githubOAuthScope, "public_repo");
   assert.equal(normalizeSettings({ githubAuth: "pat", githubOAuthScope: "repo" }).githubAuth, "pat");
   assert.equal(normalizeSettings({ githubOAuthScope: "repo" }).githubOAuthScope, "repo");
+});
+
+test("import reservations normalize only unique valid fresh asset records", () => {
+  const reservationId = "11111111-1111-4111-8111-111111111111"; const screenshotId = "22222222-2222-4222-8222-222222222222";
+  const emptyReservationId = "44444444-4444-4444-8444-444444444444";
+  assert.deepEqual(normalizePendingAssetImports([{ reservationId, screenshotIds: [screenshotId, screenshotId], recordingIds: [], createdAt: 1 }, { reservationId, screenshotIds: [], recordingIds: ["33333333-3333-4333-8333-333333333333"], createdAt: 2 }, { reservationId: emptyReservationId, screenshotIds: [], recordingIds: [], createdAt: 3 }, { reservationId: "not-an-id", screenshotIds: [screenshotId], recordingIds: [], createdAt: 1 }]), [{ reservationId, screenshotIds: [screenshotId], recordingIds: [], createdAt: 1 }, { reservationId: emptyReservationId, screenshotIds: [], recordingIds: [], createdAt: 3 }]);
 });
 
 test("device-code parser validates URL and derives bounded poll timing", () => {

@@ -27,6 +27,7 @@ export function assertMediaUploadCanChange(draft: Pick<IssueDraft, "uploadedMedi
   if (!upload && Object.keys(draft.uploadedMedia ?? {}).length) throw new Error("Already-uploaded files must remain attached to this issue draft.");
 }
 export const MAX_RECORDING_BYTES = 100 * 1024 * 1024;
+export function shouldUseRemoteCodex(provider: "openai-compatible" | "codex-subscription", connected: boolean): boolean { return provider === "codex-subscription" && connected; }
 
 export function validRecordingRef(value: unknown, now = Date.now()): value is RecordingRef {
   if (!value || typeof value !== "object") return false; const item = value as Partial<RecordingRef>;

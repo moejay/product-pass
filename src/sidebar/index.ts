@@ -1,7 +1,8 @@
 import { ext } from "../shared/browser";
 import type { Annotation, AppState, Bootstrap, CaptureKind, IssueDraft, RecordingRef, RequestMessage, ReviewSession } from "../shared/model";
 import { draftIsLocked, MAX_RECORDING_BYTES, MAX_RECORDING_MS, originPattern, safeUrl } from "../shared/pure";
-import { getMediaBlob, getScreenshotBlob, putMediaBlob } from "../shared/media-store";
+import { getMediaBlob, getScreenshotBlob, putImportedAssets, putMediaBlob } from "../shared/media-store";
+import { blobCrc32, buildRawManifest, encodeRawPrefix, MAX_RAW_ANNOTATIONS, MAX_RAW_ARCHIVE_BYTES, MAX_RAW_ASSETS, MAX_RAW_HEADER_BYTES, parseRawCaptureHeader, remapRawCapture, validRawAssetBlob, type RawAsset } from "../shared/raw-capture";
 
 const app = document.querySelector<HTMLElement>("#app")!;
 const pageStatus = document.querySelector<HTMLElement>("#page-status")!;
@@ -179,6 +180,7 @@ function render(): void {
   app.replaceChildren();
   pageStatus.textContent = data.tab.supported ? `${data.tab.title || "Untitled page"} — ${safeUrl(data.tab.url)}` : "Annotations unavailable on this page";
   renderSessionChooser(data.state);
+  renderRawCaptureActions(activeSession());
   renderConnectionChecklist(data.state);
   const session = activeSession();
   if (!session) { if (!data.state.sessions.length) renderCreate(); renderSettings(data.state); return; }
@@ -211,6 +213,36 @@ function renderSessionChooser(state: AppState): void {
   wrap.append(label, select, actions); app.append(wrap);
 }
 
+function renderRawCaptureActions(session: ReviewSession | undefined): void {
+  const section = element("section", undefined, "raw-capture-actions"); section.append(element("h2", "Raw capture backup"), element("p", "Capture, recording, local previews, and raw import/export work without AI or GitHub. Archives include raw notes, screenshots, recordings, and timestamps; they exclude drafts, settings, credentials, and publishing data.", "meta"));
+  const actions = element("div", undefined, "row");
+  if (session) actions.append(button("Export raw capture", () => exportRawCapture(session), "secondary"));
+  const file = element("input"); file.type = "file"; file.accept = ".ppraw,application/x-product-pass-raw-capture"; file.hidden = true; file.addEventListener("change", () => void run(async () => { const selected = file.files?.[0]; file.value = ""; if (selected) await importRawCapture(selected); }));
+  actions.append(button("Import raw capture…", async () => file.click(), "secondary")); section.append(actions); app.append(section);
+}
+async function exportRawCapture(session: ReviewSession): Promise<void> {
+  if (recording) throw new Error("Stop or cancel the active recording before exporting.");
+  if (session.annotations.length > MAX_RAW_ANNOTATIONS) throw new Error("This review has too many notes for raw export.");
+  const assets: RawAsset[] = []; const blobs: Blob[] = [];
+  for (const note of session.annotations) if (note.screenshot && !assets.some(asset => asset.sourceId === note.screenshot!.id)) { const blob = await getScreenshotBlob(note.screenshot.id); if (!blob || blob.type !== "image/jpeg" || blob.size < 1) throw new Error("A local screenshot is missing or corrupted; recapture it before exporting."); assets.push({ sourceId: note.screenshot.id, kind: "screenshot", mimeType: "image/jpeg", byteSize: blob.size, crc32: await blobCrc32(blob) }); blobs.push(blob); }
+  for (const ref of session.recordings) { const blob = await getMediaBlob(ref.id); if (!blob || blob.type !== "video/webm" || blob.size !== ref.byteSize) throw new Error("A local recording is missing or corrupted; recapture it before exporting."); assets.push({ sourceId: ref.id, kind: "recording", mimeType: "video/webm", byteSize: blob.size, crc32: await blobCrc32(blob) }); blobs.push(blob); }
+  if (assets.length > MAX_RAW_ASSETS) throw new Error("This review has too many media files for raw export.");
+  const manifest = buildRawManifest(session, assets); const prefix = encodeRawPrefix(manifest); const archiveSize = prefix.byteLength + assets.reduce((total, asset) => total + asset.byteSize, 0); if (archiveSize > MAX_RAW_ARCHIVE_BYTES) throw new Error("This raw capture exceeds the 2 GiB export limit."); parseRawCaptureHeader(prefix, archiveSize); const archive = new Blob([prefix.buffer as ArrayBuffer, ...blobs], { type: "application/x-product-pass-raw-capture" });
+  const url = URL.createObjectURL(archive); const link = element("a"); link.href = url; link.download = `${session.title.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "product-pass"}.ppraw`; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 30_000); say("Raw capture exported. Store the archive securely; it can contain sensitive page evidence.");
+}
+async function importRawCapture(file: File): Promise<void> {
+  if (recording) throw new Error("Stop or cancel the active recording before importing.");
+  if (file.size > MAX_RAW_ARCHIVE_BYTES) throw new Error("Raw capture archive exceeds the 2 GiB limit.");
+  say("Reading raw capture archive…"); const initial = new Uint8Array(await file.slice(0, 12).arrayBuffer()); if (initial.byteLength < 12) throw new Error("Invalid raw capture: truncated prefix."); const headerLength = new DataView(initial.buffer, initial.byteOffset, initial.byteLength).getUint32(8, true); if (headerLength > MAX_RAW_HEADER_BYTES || 12 + headerLength > file.size) throw new Error("Invalid raw capture: header length."); const parsed = parseRawCaptureHeader(new Uint8Array(await file.slice(0, 12 + headerLength).arrayBuffer()), file.size); const remapped = remapRawCapture(parsed.manifest);
+  const total = parsed.manifest.assets.reduce((sum, asset) => sum + asset.byteSize, 0); if (!confirm(`Import “${parsed.manifest.session.title}” as a new review?\n\n${parsed.manifest.session.annotations.length} notes, ${parsed.manifest.assets.filter(asset => asset.kind === "screenshot").length} screenshots, ${parsed.manifest.assets.filter(asset => asset.kind === "recording").length} recordings (${(total / 1024 / 1024).toFixed(1)} MiB).\n\nDrafts and connections are not included.`)) return;
+  const reservationId = crypto.randomUUID(); await rpc({ type: "RESERVE_IMPORTED_ASSETS", reservationId, screenshotIds: remapped.screenshotIds, recordingIds: remapped.recordingIds });
+  let offset = parsed.payloadStart; const screenshots: Array<{ id: string; blob: Blob }> = []; const media: Array<{ id: string; blob: Blob }> = [];
+  try {
+    for (let index = 0; index < parsed.manifest.assets.length; index++) { const source = parsed.manifest.assets[index]; const target = remapped.assets[index]; const blob = file.slice(offset, offset + source.byteSize, source.mimeType); offset += source.byteSize; if (!await validRawAssetBlob(source, blob)) throw new Error("Raw capture contains an invalid or corrupted media file."); if (target.kind === "screenshot") screenshots.push({ id: target.sourceId, blob }); else media.push({ id: target.sourceId, blob }); }
+    say("Saving imported media…"); await putImportedAssets(screenshots, media); await rpc({ type: "IMPORT_RAW_CAPTURE", reservationId, session: remapped.session, assets: remapped.assets.map(asset => ({ id: asset.sourceId, kind: asset.kind, mimeType: asset.mimeType, byteSize: asset.byteSize, crc32: asset.crc32 })) }); say("Raw capture imported as a new review.");
+  } catch (error) { await rpc({ type: "CANCEL_IMPORTED_ASSETS", reservationId }).catch(() => undefined); throw error instanceof Error ? error : new Error("Raw capture import failed. Staged media will be cleaned up automatically."); }
+}
+
 function renderCreate(): void {
   const section = element("section", undefined, "empty-state"); section.append(element("h2", "Start your first review"), element("p", "Capture visual feedback across pages, then turn it into reviewed GitHub issues.", "meta"), button("Start review", createSession)); app.append(section);
 }
@@ -226,14 +258,15 @@ async function connectCodex(): Promise<void> {
   await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, aiProvider: "codex-subscription" } });
   await rpc({ type: "START_CODEX_DEVICE_FLOW" }); say("Enter the displayed code on the OpenAI verification page.");
 }
-async function connectGithub(): Promise<void> {
+async function connectGithub(scope = data!.state.settings.githubOAuthScope): Promise<void> {
   if (!await ext.permissions.request({ origins: ["https://github.com/*", "https://api.github.com/*"] })) throw new Error("GitHub access permission was not granted.");
-  await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, githubAuth: "oauth" } });
+  await rpc({ type: "SAVE_SETTINGS", settings: { ...data!.state.settings, githubAuth: "oauth", githubOAuthScope: scope } });
   await rpc({ type: "START_GITHUB_OAUTH_FLOW" }); say("Enter the displayed code on GitHub.");
 }
 function deviceFlow(code: string, url: string, label: string): HTMLElement {
   const panel = element("div", undefined, "connection-flow"); panel.append(element("span", code, "device-code"));
-  const link = element("a", label); link.href = url; link.target = "_blank"; link.rel = "noreferrer"; panel.append(link); return panel;
+  const link = element("a", label); link.href = url; link.target = "_blank"; link.rel = "noreferrer";
+  const waiting = element("span", "Waiting for authorization… polling updates automatically. It is safe to return after approval.", "authorization-waiting"); waiting.setAttribute("aria-live", "polite"); panel.append(link, waiting); return panel;
 }
 function renderConnectionChecklist(state: AppState): void {
   const usingCodex = state.settings.aiProvider === "codex-subscription";
@@ -244,6 +277,9 @@ function renderConnectionChecklist(state: AppState): void {
   const complete = Number(aiReady) + Number(githubReady);
   const details = element("details", undefined, "setup-checklist"); details.open = setupOpen ?? complete < 2; details.addEventListener("toggle", () => { setupOpen = details.open; });
   const summary = element("summary"); summary.append(element("span", "Setup", "section-title"), element("span", `${complete}/2 ready`, "count")); details.append(summary);
+  const scopeBox = element("div", undefined, "oauth-scope"); const accessLabel = element("label", "GitHub OAuth repository access (chosen before connecting)"); accessLabel.htmlFor = "github-oauth-scope"; const access = element("select"); access.id = "github-oauth-scope";
+  const publicOnly = element("option", "Public repositories only (public_repo)"); publicOnly.value = "public_repo"; const privateAccess = element("option", "All public and private repositories (repo — broad access)"); privateAccess.value = "repo"; access.append(publicOnly, privateAccess); access.value = state.settings.githubOAuthScope;
+  access.addEventListener("change", () => void run(async () => { if (githubStatus.connected && !confirm("Changing repository access disconnects GitHub. Continue?")) { access.value = state.settings.githubOAuthScope; return; } await rpc({ type: "SAVE_SETTINGS", settings: { ...state.settings, githubAuth: "oauth", githubOAuthScope: access.value as "public_repo" | "repo" } }); say("GitHub access level saved. Connect GitHub to authorize it."); })); scopeBox.append(accessLabel, access, element("p", "Public-only is the default. Private repositories require GitHub's broader repo scope and reconnecting.", "meta"));
   const list = element("div", undefined, "checklist");
   const addItem = (checked: boolean, title: string, description: string, action?: () => Promise<void>) => {
     const row = element("div", undefined, `checklist-item${checked ? " ready" : ""}`); const mark = element("input"); mark.type = "checkbox"; mark.checked = checked; mark.disabled = true; mark.setAttribute("aria-label", `${title}: ${checked ? "ready" : "not connected"}`);
@@ -252,12 +288,9 @@ function renderConnectionChecklist(state: AppState): void {
   };
   const aiRow = addItem(aiReady, "AI organization", aiReady ? (usingCodex ? "Codex subscription connected" : "OpenAI-compatible API connected") : "Codex subscription · local fallback remains available", aiStatus.state === "awaiting-user" ? undefined : connectCodex);
   if (aiStatus.state === "awaiting-user" && aiStatus.userCode && aiStatus.verificationUri) aiRow.append(deviceFlow(aiStatus.userCode, aiStatus.verificationUri, "Open OpenAI verification"));
-  const githubRow = addItem(githubReady, "GitHub issue destination", githubReady ? state.settings.githubRepo : githubConnected ? "Connected · choose a repository below" : `Product Pass OAuth · ${state.settings.githubOAuthScope === "repo" ? "public and private repos" : "public repos"}`, githubConnected || githubStatus.state === "awaiting-user" ? undefined : connectGithub);
+  const githubRow = addItem(githubReady, "GitHub issue destination", githubReady ? state.settings.githubRepo : githubConnected ? "Connected · choose a repository below" : `Product Pass OAuth · ${state.settings.githubOAuthScope === "repo" ? "public and private repos" : "public repos"}`, githubConnected || githubStatus.state === "awaiting-user" ? undefined : () => connectGithub(access.value as "public_repo" | "repo"));
   if (githubStatus.state === "awaiting-user" && githubStatus.userCode && githubStatus.verificationUri) githubRow.append(deviceFlow(githubStatus.userCode, githubStatus.verificationUri, "Open GitHub verification"));
   const repo = element("div", undefined, "repo-picker");
-  const accessLabel = element("label", "OAuth repository access"); accessLabel.htmlFor = "github-oauth-scope"; const access = element("select"); access.id = "github-oauth-scope";
-  const publicOnly = element("option", "Public repositories only"); publicOnly.value = "public_repo"; const privateAccess = element("option", "Public and private repositories (broad repo scope)"); privateAccess.value = "repo"; access.append(publicOnly, privateAccess); access.value = state.settings.githubOAuthScope;
-  access.addEventListener("change", () => void run(async () => { if (githubStatus.connected && !confirm("Changing repository access disconnects GitHub. Continue?")) { access.value = state.settings.githubOAuthScope; return; } await rpc({ type: "SAVE_SETTINGS", settings: { ...state.settings, githubAuth: "oauth", githubOAuthScope: access.value as "public_repo" | "repo" } }); say("GitHub access level saved. Connect GitHub to authorize it."); }));
   const label = element("label", "Issue repository"); label.htmlFor = "setup-repo";
   const input = element("input"); input.id = "setup-repo"; input.value = state.settings.githubRepo; input.placeholder = githubConnected ? "Search owner/repository" : "Connect GitHub to search repositories"; input.setAttribute("list", "github-repositories");
   const options = element("datalist"); options.id = "github-repositories"; const searchStatus = element("span", githubConnected ? "Type to search repositories available to the connected account." : "Repository search becomes available after GitHub is connected.", "meta");
@@ -271,8 +304,8 @@ function renderConnectionChecklist(state: AppState): void {
     }, 250);
   };
   input.addEventListener("focus", search); input.addEventListener("input", search); input.addEventListener("change", () => void run(async () => { await rpc({ type: "SET_GITHUB_REPO", repo: input.value }); say("Issue repository saved."); }));
-  repo.append(accessLabel, access, label, input, options, searchStatus);
-  details.append(list, repo); app.append(details);
+  repo.append(label, input, options, searchStatus);
+  details.append(scopeBox, list, repo); app.append(details);
 }
 async function finishSession(session: ReviewSession): Promise<void> {
   if (recording) throw new Error("Stop or cancel the active recording before finishing this review.");
@@ -347,8 +380,8 @@ async function beginCapture(mode: CaptureKind): Promise<void> {
 async function organize(): Promise<void> {
   const session = activeSession()!;
   const usingCodex = data!.state.settings.aiProvider === "codex-subscription";
-  if (usingCodex && !data!.credentials.codexSubscription.connected) throw new Error("Connect experimental Codex in Settings first.");
-  const provider = usingCodex ? `experimental ChatGPT Codex (${data!.state.settings.codexModel})` : data!.credentials.aiKey ? new URL(data!.state.settings.aiEndpoint).hostname : "the local deterministic fallback";
+  const codexConnected = data!.credentials.codexSubscription.connected;
+  const provider = usingCodex && codexConnected ? `experimental ChatGPT Codex (${data!.state.settings.codexModel})` : data!.credentials.aiKey && !usingCodex ? new URL(data!.state.settings.aiEndpoint).hostname : "the local deterministic fallback";
   const domains = [...new Set(session.annotations.map(note => { try { return new URL(note.safeUrl).hostname; } catch { return "unknown"; } }))].join(", ");
   if (!confirm(`Organize ${session.annotations.length} notes using ${provider}?\n\nShared with a configured AI: note text, page title, sanitized URL, annotation type, and element label. No screenshots, page DOM, query strings, fragments, or credentials.\n\nDomains: ${domains}`)) return;
   const result = await rpc<{ fallback: boolean }>({ type: "GENERATE_DRAFTS" });
@@ -382,7 +415,7 @@ function renderDrafts(session: ReviewSession): void {
     const retainedUploads = Object.entries(draft.uploadedMedia ?? {});
     const uploadLabel = element("label", undefined, "media-upload-toggle"); const upload = element("input"); upload.type = "checkbox"; upload.checked = draft.uploadMedia === true; upload.disabled = locked || retainedUploads.length > 0;
     upload.addEventListener("change", () => void run(async () => { await rpc({ type: "SET_DRAFT_MEDIA_UPLOAD", draftId: draft.id, upload: upload.checked }); say("Media publishing choice changed. Review and accept the draft again."); }));
-    uploadLabel.append(upload, element("span", `Upload ${sourceMediaCount} source image/video file${sourceMediaCount === 1 ? "" : "s"} to GitHub (experimental undocumented API)`)); card.append(uploadLabel);
+    uploadLabel.append(upload, element("span", `OPTIONAL — upload ${sourceMediaCount} source image/video file${sourceMediaCount === 1 ? "" : "s"} to GitHub`)); card.append(uploadLabel, element("p", "Default off. Requires repository write access and GitHub's experimental undocumented attachment API; it may fail for some accounts. Store versions before 0.6.0 do not include media upload.", "warning"));
     if (retainedUploads.length) {
       const uploaded = element("div", undefined, "uploaded-media"); uploaded.append(element("p", "Already uploaded files are retained and must remain attached on retry.", "warning"));
       const links = element("ul"); for (const [id, url] of retainedUploads) { const item = element("li"); const link = element("a", id); link.href = url; link.target = "_blank"; link.rel = "noreferrer"; item.append(link); links.append(item); } uploaded.append(links); card.append(uploaded);
@@ -469,17 +502,18 @@ function renderSettings(state: AppState): void {
   else if (codexStatus.state === "awaiting-user" && codexStatus.userCode && codexStatus.verificationUri) {
     const code = element("p", `Codex code: ${codexStatus.userCode}`, "device-code"); code.setAttribute("aria-live", "polite");
     const link = element("a", "Open OpenAI Codex verification page"); link.href = codexStatus.verificationUri; link.target = "_blank"; link.rel = "noreferrer";
-    codexFields.append(code, link, element("p", `Expires ${new Date(codexStatus.flowExpiresAt!).toLocaleString()}. Polling continues safely.`, "meta"), button("Cancel sign-in", async () => { await rpc({ type: "CANCEL_CODEX_DEVICE_FLOW" }); say("Codex sign-in canceled."); }, "secondary"));
+    const waiting = element("p", "Waiting for authorization… polling updates automatically. It is safe to return after approval.", "authorization-waiting"); waiting.setAttribute("aria-live", "polite"); codexFields.append(code, link, waiting, element("p", `Expires ${new Date(codexStatus.flowExpiresAt!).toLocaleString()}.`, "meta"), button("Cancel sign-in", async () => { await rpc({ type: "CANCEL_CODEX_DEVICE_FLOW" }); say("Codex sign-in canceled."); }, "secondary"));
   } else if (codexStatus.message) codexFields.append(element("p", codexStatus.message, "error"));
   details.append(element("h3", "AI organization", "settings-heading"), aiProviderLabel, aiProvider, compatibleFields, codexFields);
 
   const patFields = element("div", undefined, "settings-group"); patFields.append(tokenLabel, token);
-  const oauthFields = element("div", undefined, "settings-group"); oauthFields.append(element("p", `OAuth access is selected in Setup (${state.settings.githubOAuthScope === "repo" ? "public and private repositories" : "public repositories only"}).`, "meta"));
+  const oauthFields = element("div", undefined, "settings-group"); const scopeLabel = element("label", "GitHub OAuth repository access (choose before connecting)"); scopeLabel.htmlFor = "settings-github-oauth-scope"; const scope = element("select"); scope.id = "settings-github-oauth-scope"; const publicScope = element("option", "Public repositories only (public_repo)"); publicScope.value = "public_repo"; const privateScope = element("option", "All public and private repositories (repo — broad access)"); privateScope.value = "repo"; scope.append(publicScope, privateScope); scope.value = state.settings.githubOAuthScope; oauthFields.append(scopeLabel, scope, element("p", "Public-only is the default. Choosing repo requests broad private-repository access and disconnects an existing GitHub OAuth connection.", "meta"));
+  scope.addEventListener("change", () => void run(async () => { if (status.connected && !confirm("Changing repository access disconnects GitHub. Continue?")) { scope.value = state.settings.githubOAuthScope; return; } await rpc({ type: "SAVE_SETTINGS", settings: { ...state.settings, githubOAuthScope: scope.value as "public_repo" | "repo" } }); say("GitHub access level saved. Connect GitHub to authorize it."); }));
   if (status.state === "authorized") oauthFields.append(element("p", `Connected${status.expiresAt ? ` until ${new Date(status.expiresAt).toLocaleString()}` : " until removed"}.`, "success"));
   else if (status.state === "awaiting-user" && status.userCode && status.verificationUri) {
     const code = element("p", `GitHub code: ${status.userCode}`, "device-code"); code.setAttribute("aria-live", "polite");
     const link = element("a", "Open GitHub verification page"); link.href = status.verificationUri; link.target = "_blank"; link.rel = "noreferrer";
-    oauthFields.append(code, link, element("p", `Expires ${new Date(status.flowExpiresAt!).toLocaleString()}.`, "meta"), button("Cancel sign-in", async () => { await rpc({ type: "CANCEL_GITHUB_OAUTH_FLOW" }); say("GitHub sign-in canceled."); }, "secondary"));
+    const waiting = element("p", "Waiting for authorization… polling updates automatically. It is safe to return after approval.", "authorization-waiting"); waiting.setAttribute("aria-live", "polite"); oauthFields.append(code, link, waiting, element("p", `Expires ${new Date(status.flowExpiresAt!).toLocaleString()}.`, "meta"), button("Cancel sign-in", async () => { await rpc({ type: "CANCEL_GITHUB_OAUTH_FLOW" }); say("GitHub sign-in canceled."); }, "secondary"));
   } else if (status.message) oauthFields.append(element("p", status.message, "error"));
   details.append(element("h3", "GitHub publishing", "settings-heading"), githubAuthLabel, githubAuth, oauthFields, patFields);
   const syncSettingsVisibility = () => { compatibleFields.hidden = aiProvider.value !== "openai-compatible"; codexFields.hidden = aiProvider.value !== "codex-subscription"; patFields.hidden = githubAuth.value !== "pat"; oauthFields.hidden = githubAuth.value !== "oauth"; };
@@ -492,7 +526,7 @@ function renderSettings(state: AppState): void {
     aiModel: model.value,
     codexModel: codexModel.value,
     githubAuth: githubAuth.value as "pat" | "oauth",
-    githubOAuthScope: state.settings.githubOAuthScope,
+    githubOAuthScope: scope.value as "public_repo" | "repo",
     githubRepo: state.settings.githubRepo
   });
   const save = async (): Promise<void> => {
@@ -505,13 +539,13 @@ function renderSettings(state: AppState): void {
     if (origins.length && !await ext.permissions.request({ origins: [...new Set(origins)] })) throw new Error("Network access permission was not granted.");
     await rpc({ type: "SAVE_SETTINGS", settings: settingsValue(), ...(key.value ? { aiKey: key.value } : {}), ...(token.value ? { githubToken: token.value } : {}) });
   };
-  details.append(element("p", "Credentials persist in extension storage.local, isolated from page scripts. Extension storage is not a hardware-backed vault.", "meta"));
+  details.append(element("p", `Product Pass ${ext.runtime.getManifest().version}`, "meta"), element("p", "Credentials persist in extension storage.local, isolated from page scripts. Extension storage is not a hardware-backed vault.", "meta"));
   details.append(element("p", "Upgraded from the former GitHub App? Product Pass removes its local credentials, but you must separately revoke its authorization and installation in GitHub Settings → Applications.", "meta"));
   const settingsActions = element("div", undefined, "settings-actions");
   settingsActions.append(button("Save settings", async () => { await save(); say("Settings saved."); }));
   settingsActions.append(button("Connect Codex", async () => { aiProvider.value = "codex-subscription"; await save(); await rpc({ type: "START_CODEX_DEVICE_FLOW" }); say("Enter the displayed code on the OpenAI Codex verification page."); }, "secondary"));
   if (codexStatus.connected || codexStatus.state === "awaiting-user") settingsActions.append(button("Disconnect Codex", async () => { await rpc({ type: "DISCONNECT_CODEX" }); say("Local Codex credentials and pending sign-in removed."); }, "danger"));
-  settingsActions.append(button("Connect GitHub", async () => { githubAuth.value = "oauth"; await save(); await rpc({ type: "START_GITHUB_OAUTH_FLOW" }); say("Enter the displayed code on GitHub."); }, "secondary"));
+  settingsActions.append(button("Connect GitHub", async () => { githubAuth.value = "oauth"; await save(); await rpc({ type: "START_GITHUB_OAUTH_FLOW" }); say("Waiting for GitHub authorization. Enter the displayed code; this updates automatically after approval."); }, "secondary"));
   if (status.connected || status.state === "awaiting-user") settingsActions.append(button("Disconnect GitHub OAuth", async () => { await rpc({ type: "DISCONNECT_GITHUB_OAUTH" }); say("Local GitHub OAuth credentials and pending sign-in removed. Revoke access in GitHub Settings if needed."); }, "danger"));
   settingsActions.append(button("Clear API key and PAT", async () => { await rpc({ type: "SAVE_SETTINGS", settings: settingsValue(), aiKey: "", githubToken: "" }); say("API key and PAT cleared."); }, "danger"));
   details.append(settingsActions);

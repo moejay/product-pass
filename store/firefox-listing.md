@@ -12,11 +12,11 @@ Web Development, Productivity
 ## Description
 Product Pass turns a multi-page website review into structured GitHub issues without losing visual context.
 
-Select an element, draw a freehand boundary, or record up to one minute of no-audio WebM video with timestamped notes. Screenshots and recordings stay local for preview, download, and deletion. Organize related notes into editable drafts, inspect mixed-media evidence, then publish only accepted issues. Optional GitHub media upload is default-off per draft and uses an experimental undocumented endpoint.
+Select an element, draw a freehand boundary, or record up to one minute of no-audio WebM video with timestamped notes. Screenshots and recordings stay local for preview, download, deletion, and offline raw-capture backup/import without an account. Raw archives exclude drafts, settings, credentials, and publication data. Organize related notes into editable drafts, inspect mixed-media evidence, then publish only accepted issues. Optional GitHub media upload is default-off per draft and uses an experimental undocumented endpoint.
 
 Organization can use a deterministic local fallback, a configured OpenAI-compatible endpoint, or an experimental ChatGPT/Codex subscription connection. GitHub publishing supports Product Pass OAuth Device Flow or a fine-grained personal access token.
 
-Product Pass has no publisher-operated application backend, analytics, or advertising. Media is never sent to AI and reaches GitHub only after explicit per-draft opt-in and publish confirmation.
+Product Pass has no publisher-operated application backend, analytics, or advertising. Media is never sent to AI and reaches GitHub only after explicit per-draft opt-in, repository write access, and publish confirmation.
 
 ## Support
 - Homepage: https://moejay.github.io/product-pass/

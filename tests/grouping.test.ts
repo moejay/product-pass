@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Annotation } from "../src/shared/model";
-import { annotationRevision, appendSourceEvidence, assertMediaUploadCanChange, assertSessionDeletable, assertSessionMutable, deterministicDrafts, originPattern, safeUrl } from "../src/shared/pure";
+import { annotationRevision, appendSourceEvidence, assertMediaUploadCanChange, assertSessionDeletable, assertSessionMutable, deterministicDrafts, originPattern, safeUrl, shouldUseRemoteCodex } from "../src/shared/pure";
 
 function note(id: string, url: string, text = ""): Annotation {
   return { id, sessionId: "s1", kind: "element", url, safeUrl: safeUrl(url), pageTitle: "Page", text, contextLabel: "button", anchor: { kind: "element", selector: "button", quote: "button", rect: { x: 0, y: 0, width: 20, height: 20 } }, createdAt: 1, updatedAt: 1 };
@@ -53,6 +53,12 @@ test("partial GitHub uploads cannot be detached or erased with source mutations"
   assert.throws(() => assertMediaUploadCanChange(issue, false), /must remain attached/);
   assert.throws(() => assertSessionMutable({ drafts: [issue] }), /already-uploaded files/);
   assert.doesNotThrow(() => assertSessionDeletable({ drafts: [issue] }));
+});
+
+test("unconnected default Codex uses the deterministic local fallback", () => {
+  assert.equal(shouldUseRemoteCodex("codex-subscription", false), false);
+  assert.equal(shouldUseRemoteCodex("codex-subscription", true), true);
+  assert.equal(shouldUseRemoteCodex("openai-compatible", true), false);
 });
 
 test("fallback groups all notes deterministically by hostname", () => {

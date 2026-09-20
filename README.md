@@ -64,12 +64,16 @@ Zen may hide Firefox's standard extension-sidebar picker. Pin Product Pass from 
 
 Temporary add-ons are removed when Firefox closes. For persistent local installation, sign/package the Firefox output through Mozilla's normal extension workflow. Firefox 140+ desktop is supported. This baseline covers Manifest V3 optional host permissions and Firefox's built-in data-consent declaration.
 
+## Icons
+
+Product Pass already includes verified 16/32/48/128 PNG manifest icons, 16/32 toolbar icons, and a matching 128px store icon; no additional Product Pass logo artwork is needed.
+
 ## Use
 
 1. Create a review session in the sidebar.
 2. On a regular HTTP(S) page, choose **Enable on this site**. This requests access only for that origin.
 3. Start an element or freehand capture, finish it on the page, and enter optional context in the page prompt. Canceling the prompt discards that capture. Product Pass attempts to capture and crop the visible selected boundary locally.
-4. Capture more notes across tabs/pages, or choose **Record screen**, select a surface, and add timestamped notes while recording. Recordings stop at 60 seconds or 100 MiB. Metadata persists in `storage.local`; media blobs remain in IndexedDB.
+4. Capture more notes across tabs/pages, or choose **Record screen**, select a surface, and add timestamped notes while recording. Recordings stop at 60 seconds or 100 MiB. Metadata persists in `storage.local`; media blobs remain in IndexedDB. No AI or GitHub connection is needed to capture, preview, or import/export a raw `.ppraw` backup.
 5. Choose **Organize notes**. With no AI key, notes are grouped locally by hostname. With AI configured, review the disclosure before sending.
 6. Edit drafts and explicitly mark those to publish as **Accepted**.
 7. Connect GitHub OAuth (public repositories by default, or explicitly request the broader private-repository scope), choose a repository, and publish each accepted issue only after the per-issue confirmation. Each draft has a default-off option to upload its source media. A fine-grained PAT remains available as an override.
@@ -110,13 +114,13 @@ The request is background-only, streaming SSE, and locally validates strict JSON
 ## Settings and privacy
 
 - Sessions, vector geometry, note text, draft text, enabled origins, and non-secret settings use browser `storage.local`.
-- Settings, AI keys, GitHub PATs, GitHub OAuth tokens, and experimental Codex access/refresh/ID tokens persist in extension `storage.local`; they are not returned to content scripts or shown after saving. Legacy `storage.session` credentials are migrated automatically.
+- Settings, AI keys, GitHub PATs, GitHub OAuth tokens, and experimental Codex access/refresh/ID tokens persist in extension `storage.local`; they are not returned to content scripts or shown after saving. `.ppraw` archives never include credentials, settings, drafts, or GitHub publication data; archived page URLs are sanitized to remove credentials, query strings, and fragments. Legacy `storage.session` credentials are migrated automatically.
 - Pending GitHub and Codex device flows store bounded device authorization metadata, public user code/verification URL, next poll, and expiry in `storage.local` so MV3 worker suspension does not lose polling. Metadata is deleted on completion, cancellation, or expiry. No client secret/private key is used or stored.
 - The extension has no backend or telemetry.
 - Site access is optional and requested per origin. Custom AI endpoint access is requested when settings are saved. Device flows request only the exact GitHub origins or `https://auth.openai.com/*` and `https://chatgpt.com/*` at runtime from extension contexts; tokens never enter content scripts, page DOM, issue text, AI prompts, URLs, or logs.
 - AI requests occur only after **Organize** confirmation. They contain note IDs/text (including timestamp text), annotation type, compact context label, page title, and sanitized URL. URL credentials, query, and fragment are removed. No screenshot/video blobs, full DOM, selectors, cookies, browsing history, or GitHub credential are sent.
 - Every generated issue body receives a structured **Source evidence** section with page title, sanitized URL, annotation type, element/context label, CSS selector for selected elements, and recording timestamps where applicable.
-- Cropped JPEG screenshots and bounded WebM recordings are stored in extension IndexedDB and previewed locally. Per-draft media upload is off by default. When explicitly enabled and confirmed, Product Pass uploads source media directly to GitHub and appends returned URLs to the issue body.
+- Cropped JPEG screenshots and bounded WebM recordings are stored in extension IndexedDB and previewed locally. Raw `.ppraw` export/import is local-only and may contain sensitive page evidence. Per-draft media upload is off by default; it requires repository write access and GitHub's experimental undocumented attachment API. Store versions before 0.6.0 do not include media upload.
 - Prefer public-only OAuth or a least-privilege fine-grained PAT; private-repository OAuth uses GitHub's broader `repo` scope. Extension `storage.local` is not hardware-backed secret storage; credentials remain available until disconnected/cleared and are not protected from a compromised browser profile/device.
 - A custom AI endpoint sees the selected note data. Verify that provider's privacy and retention terms before configuring it.
 
